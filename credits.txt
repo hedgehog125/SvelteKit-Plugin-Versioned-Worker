@@ -1,0 +1,28 @@
+=== Code ===
+SvelteKit template: Nicholas Clack (Hedgehog125) https://hedgehog125.github.io/SvelteKit-Template
+
+== Packages and tools ==
+= Tools folder (part of template) =
+node-gzip: (https://www.npmjs.com/package/node-gzip)
+sandboxed-path: (https://www.npmjs.com/package/sandboxed-path)
+
+= Backend server =
+express: (https://www.npmjs.com/package/express)
+ip: (https://www.npmjs.com/package/ip)
+sandboxed-path: (https://www.npmjs.com/package/sandboxed-path)
+
+= Frontend build server =
+SvelteKit (https://kit.svelte.dev/)
+html-minifier (https://www.npmjs.com/package/html-minifier)
+Vite: (https://www.npmjs.com/package/vite)
+cross-env (https://www.npmjs.com/package/cross-env)
+
+=== Images ===
+== Key ==
+Material Icons:
+https://materialdesignicons.com/
+and https://github.com/Templarian/MaterialDesign
+under Apache License 2.0
+
+== Icons ==
+EXAMPLE: Material icon, arrow left, Google

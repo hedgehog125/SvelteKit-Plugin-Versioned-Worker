@@ -1,0 +1,21 @@
+{
+	"name": "sveltekit-template-tools",
+	"version": "1.0.0",
+	"description": "A few custom scripts for SvelteKit-Template",
+	"dependencies": {
+		"node-gzip": "^1.1.2",
+		"sandboxed-path": "^2.0.0"
+	},
+	"devDependencies": {},
+	"scripts": {
+		"test": "echo \"Error: no test specified\" && exit 1",
+		"deployBuild": "node deployBuild.js",
+		"deleteBuild": "node deleteBuild.js",
+		"deleteGzippedBuild": "node deleteGzippedBuild.js",
+		"gzip": "node gzip.js"
+	},
+	"keywords": [],
+	"author": "Nicholas Clack (Hedgehog125)",
+	"license": "MIT",
+	"type": "module"
+}

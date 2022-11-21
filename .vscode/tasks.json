@@ -1,0 +1,101 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build static",
+			"type": "npm",
+			"script": "build",
+			"options": {
+				"cwd": "${workspaceFolder}/static/"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Test build static (no base URL)",
+			"type": "npm",
+			"script": "testBuild",
+			"options": {
+				"cwd": "${workspaceFolder}/static/"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Preview last build",
+			"type": "npm",
+			"script": "preview",
+			"options": {
+				"cwd": "${workspaceFolder}/static/"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Deploy last build",
+			"type": "npm",
+			"script": "deployBuild",
+			"options": {
+				"cwd": "${workspaceFolder}/tools/"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Dev static",
+			"type": "npm",
+			"script": "dev",
+			"options": {
+				"cwd": "${workspaceFolder}/static/"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Start backend",
+			"type": "npm",
+			"script": "start",
+			"options": {
+				"cwd": "${workspaceFolder}/server/"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Gzip last build",
+			"type": "npm",
+			"script": "gzip",
+			"options": {
+				"cwd": "${workspaceFolder}/tools/"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Install dependencies",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"command": "./devInstall.sh",
+			"windows": {
+				"command": ".\\devInstall.cmd"
+			},
+			"args": [],
+			"problemMatcher": []
+		},
+		{
+			"label": "Delete build",
+			"type": "npm",
+			"script": "deleteBuild",
+			"options": {
+				"cwd": "${workspaceFolder}/tools/"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Delete gzipped build",
+			"type": "npm",
+			"script": "deleteGzippedBuild",
+			"options": {
+				"cwd": "${workspaceFolder}/tools/"
+			},
+			"problemMatcher": []
+		}
+	]
+}
