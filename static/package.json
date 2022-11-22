@@ -2,7 +2,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"debugDuringBuild": "npm --node-options=--inspect run build",
+		"debugDuringBuild": "npm --node-options=--inspect-brk run build",
 		"testBuild": "cross-env DISABLE_BASE_URL=true vite build",
 		"preview": "http-server build"
 	},
