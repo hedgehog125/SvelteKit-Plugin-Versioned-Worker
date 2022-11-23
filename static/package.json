@@ -7,7 +7,6 @@
 		"preview": "http-server build"
 	},
 	"dependencies": {
-		"mime-types": "^2.1.35",
 		"degit": "^2.8.4"
 	},
 	"devDependencies": {

@@ -1,26 +1,32 @@
 /*
 TODO
 
-Have a .versionedWorker.json file which contains info about the last build. e.g the app directory. Also store hashes in it
 Call bundle.close
-Have a way to provide the sveltekit config for the previous version, in case the app directory changed
 Make recursiveList parrelel?
 */
 
 import path from "path";
 import fs from "fs/promises";
 
-import mime from "mime-types";
 import crypto from "crypto";
 import degit from "degit";
+import { installPolyfills } from "@sveltejs/kit/node/polyfills";
+installPolyfills();
 
 
-const LAST_BUILD = "tmp/lastBuild";
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
 const WORKER_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
 const INFO_FILE = ".versionedWorker.json";
+const DEFAULT_STATIC_FOLDER = "static";
 
+
+const generateInitialInfo = svelteConfig => ({
+	formatVersion: 1,
+	filesAndFolders: [],
+	staticHashes: {},
+	svelteConfig
+});
 const makeTemp = async _ => {
 	let exists = true;
 	try {
@@ -76,53 +82,41 @@ class VersionedWorkerError extends Error {};
 export function plugin(config) {
 	let shouldIgnore;
 	let backgroundTask;
-	let lastBuild = {
-		filesAndFolders: null,
-		staticHashes: null,
-		version: null
-	};
+	let lastBuild;
 	let svelteConfig;
+	let staticHashes;
 
 
 	const init = async (config, methods) => {
 		await makeTemp();
 		await fs.mkdir(DOWNLOAD_TMP);
 	
-		let output = config.lastBuild(LAST_BUILD, DOWNLOAD_TMP, methods);
-		if (output instanceof Promise) output = await output;
-	
-		lastBuild.filesAndFolders = (await recursiveList(LAST_BUILD)).filter(info => ! path.basename(info.path).startsWith("."));
-		if (lastBuild.filesAndFolders.length != 0) {
-			if (! lastBuild.filesAndFolders.includes(
-				path.join(svelteConfig.kit.appDir, WORKER_FOLDER, VERSION_FILE)
-			)) {
-				throw new VersionedWorkerError(`A previous build was found, but it's missing a ${VERSION_FILE} file. This could be because you provided something that isn't a build, or because you changed some configuration or versions in this new version, without properly specifying it in the plugin config.`);
+		{
+			let output = config.lastInfo(DOWNLOAD_TMP, methods);
+			if (output instanceof Promise) output = await output;
+			if (output == null) output = generateInitialInfo(svelteConfig);
+			else {
+				try {
+					output = JSON.parse(output);
+				}
+				catch {
+					throw new VersionedWorkerError(`Couldn't parse the info file from the last build. Contents:\n${output}`);
+				}
 			}
-
-			const stringVersion = await fs.readFile(path.join(
-				LAST_BUILD,
-				svelteConfig.kit.appDir,
-				WORKER_FOLDER,
-				VERSION_FILE
-			)).trim();
-			lastBuild.version = parseInt(stringVersion);
-			if (isNaN(lastBuild.version)) {
-				throw new Error(`Couldn't parse the ${VERSION_FILE} file in the last build. Its trimmed contents is:\n${stringVersion}`);
-			}
-
-			debugger
+			lastBuild = output;
 		}
 
-		const staticFiles = lastBuild.filesAndFolders
-			.filter(info => ! info.isFolder)
-			.map(info => info.path)
-			.filter(path => ! path.startsWith(svelteConfig.kit.appDir))
-		;
-		lastBuild.staticHashes = Object.create(null, {});
-		for (const fileName of staticFiles) {
-			const contents = await fs.readFile(path.join(LAST_BUILD, fileName));
+		// Since the static files aren't changed during the build, we can start hashing them now
+		{
+			staticHashes = Object.create(null, {});
+			const staticFolder = path.join(svelteConfig.root, svelteConfig.kit.files.assets);
+			const staticFiles = await recursiveList(staticFolder);
+			for (const fileInfo of staticFiles) {
+				if (fileInfo.isFolder) continue;
 
-			lastBuild.staticHashes[fileName] = hash(contents);
+				const contents = await fs.readFile(path.join(staticFolder, fileInfo.path));
+				staticHashes[fileInfo.path] = hash(contents);
+			}
 		}
 	};
 	const cleanUp = async _ => {
@@ -135,13 +129,17 @@ export function plugin(config) {
 		name: "versioned-worker",
 		buildStart: {
 			handler(options) {
-				shouldIgnore = ! options.input.hasOwnProperty("index"); // The whole plugin will be run multiple times, but we're only interested in the last build step
+				shouldIgnore = options.input.hasOwnProperty("index"); // The whole plugin will be run multiple times, but we're only interested in the static build step, not the SSR one
 				// ^ This probably isn't a great way of detecting it since this could change in the future, but I can't see a better way
 				if (shouldIgnore) return;
 
 				svelteConfig = options.plugins.find(plugin => plugin.name == "vite-plugin-svelte");
 				if (svelteConfig == null) throw new VersionedWorkerError("Couldn't find SvelteKit plugin.");
 				svelteConfig = svelteConfig.api.options;
+
+				// For some reason this doesn't have the defaults which is cringe
+				if (svelteConfig.kit.files == null) svelteConfig.kit.files = {};
+				if (svelteConfig.kit.files.assets == null) svelteConfig.kit.files.assets = DEFAULT_STATIC_FOLDER;
 
 
 				backgroundTask = init(config, {
@@ -153,9 +151,8 @@ export function plugin(config) {
 		generateBundle: {
 			order: "post",
 			sequential: true,
-			async handler(options, bundle, isWrite) {
+			async handler(_, bundle, isWrite) {
 				if (shouldIgnore) return;
-				console.log(bundle, isWrite);
 				debugger;
 
 				await backgroundTask;
@@ -165,18 +162,57 @@ export function plugin(config) {
 		}
 	};
 }
-export const downloadLastBuild = {
+export const downloadLastInfo = {
 	degit: source => {
-		return async (dest, _, methods) => {
+		return async (tmpDir, methods) => {
 			const emitter = degit(source);
 		
+			let downloaded = true;
 			try {
-				await emitter.clone(dest);
+				await emitter.clone(tmpDir);
 			}
 			catch (error) {
-				methods.warn(`Couldn't download the last build. Assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
+				methods.warn(`Couldn't download the last build, so assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
 
-				await fs.mkdir(dest);
+				downloaded = false;
+			}
+
+			if (downloaded) {
+				const infoFile = path.join(tmpDir, INFO_FILE);
+				let exists = true;
+				try {
+					await fs.stat(infoFile);
+				}
+				catch {
+					exists = false;
+				}
+
+				if (exists) return await fs.readFile(infoFile);
+				else return null;
+			}
+			else return null;
+		};
+	},
+	fetch: url => {
+		return async (_, methods) => {
+			let response;
+			try {
+				response = await fetch(url);
+			}
+			catch {
+				methods.warn("Couldn't download the last build info file due a network error, So assuming this is the first build so this build can finish. You probably don't want to deploy this.");
+				return null;
+			}
+
+			if (response.ok) return await response.text();
+			else {
+				if (response.status == 404) {
+					methods.warn("Assuming this is the first version as downloading the last build info file resulted in a 404.");
+					return null;
+				}
+				else {
+					throw new VersionedWorkerError(`Got a ${response.status} HTTP error while trying to download the last build info.`);
+				}
 			}
 		};
 	}

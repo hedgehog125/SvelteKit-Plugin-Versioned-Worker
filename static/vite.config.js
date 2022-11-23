@@ -5,7 +5,7 @@ const config = {
 	plugins: [
 		sveltekit(),
 		versionedWorker.plugin({
-			lastBuild: versionedWorker.downloadLastBuild.degit("hedgehog125/SvelteKit-Plugin-Versioned-Worker")
+			lastInfo: versionedWorker.downloadLastInfo.fetch("https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker/.versionedWorker.json")
 		})
 	]
 };
