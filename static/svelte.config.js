@@ -32,7 +32,8 @@ const config = {
 			pages: buildDir,
 			assets: buildDir,
 			fallback: null
-		})
+		}),
+		trailingSlash: "always"
 	}
 };
 

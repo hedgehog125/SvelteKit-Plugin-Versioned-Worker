@@ -80,6 +80,9 @@ const recursiveListSub = async (folder, found, relativeFolderPath) => {
 class VersionedWorkerError extends Error {};
 
 export function plugin(config) {
+	const dev = process.env.NODE_ENV != "production";
+	if (dev) return null;
+
 	let shouldIgnore;
 	let backgroundTask;
 	let lastBuild;
@@ -128,7 +131,7 @@ export function plugin(config) {
 	return {
 		name: "versioned-worker",
 		buildStart: {
-			handler(options) {
+			async handler(options) {
 				shouldIgnore = options.input.hasOwnProperty("index"); // The whole plugin will be run multiple times, but we're only interested in the static build step, not the SSR one
 				// ^ This probably isn't a great way of detecting it since this could change in the future, but I can't see a better way
 				if (shouldIgnore) return;
@@ -146,6 +149,13 @@ export function plugin(config) {
 					warn: this.warn,
 					info: this.info
 				});
+
+				this.emitFile({
+					type: "chunk",
+					id: "versioned-worker",
+					fileName: "sw.js", // Used instead of filename so there's no hash
+					source: await fs.readFile("plugins/worker.js")
+				});
 			}
 		},
 		generateBundle: {
@@ -153,11 +163,17 @@ export function plugin(config) {
 			sequential: true,
 			async handler(_, bundle, isWrite) {
 				if (shouldIgnore) return;
-				debugger;
 
 				await backgroundTask;
 
 				await cleanUp();
+			}
+		},
+		closeBundle: {
+			order: "post",
+			sequential: true,
+			handler() {
+				// debugger;
 			}
 		}
 	};
