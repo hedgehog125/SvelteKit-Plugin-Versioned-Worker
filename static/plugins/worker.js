@@ -7,7 +7,7 @@ Build inputs:
  * STORAGE_PREFIX
  * VERSION
 */
-const COMPLETE_CACHE_LIST = Object.assign(null, {});
+const COMPLETE_CACHE_LIST = Object.create(null, {});
 const addToCacheList = hrefs => {
 	for (const href of hrefs) {
 		COMPLETE_CACHE_LIST[href] = true;

@@ -15,6 +15,8 @@ installPolyfills();
 
 
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
+const STAGE_SHARED_DATA = "tmp/stageSharedData.json";
+const WORKER_FILE = "sw.js";
 const WORKER_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
 const INFO_FILE = ".versionedWorker.json";
@@ -79,14 +81,18 @@ const recursiveListSub = async (folder, found, relativeFolderPath) => {
 };
 class VersionedWorkerError extends Error {};
 
-export function plugin(config) {
+export function versionedWorker(config) {
+	if (config.lazyCache == null) config.lazyCache = _ => false; 
+
 	const dev = process.env.NODE_ENV != "production";
 	if (dev) return null;
 
-	let shouldIgnore;
+	let viteConfig;
+	let svelteConfig;
+
+	let isSSR;
 	let backgroundTask;
 	let lastBuild;
-	let svelteConfig;
 	let staticHashes;
 
 
@@ -130,106 +136,114 @@ export function plugin(config) {
 
 	return {
 		name: "versioned-worker",
-		buildStart: {
-			async handler(options) {
-				shouldIgnore = options.input.hasOwnProperty("index"); // The whole plugin will be run multiple times, but we're only interested in the static build step, not the SSR one
-				// ^ This probably isn't a great way of detecting it since this could change in the future, but I can't see a better way
-				if (shouldIgnore) return;
-
-				svelteConfig = options.plugins.find(plugin => plugin.name == "vite-plugin-svelte");
-				if (svelteConfig == null) throw new VersionedWorkerError("Couldn't find SvelteKit plugin.");
-				svelteConfig = svelteConfig.api.options;
-
-				// For some reason this doesn't have the defaults which is cringe
-				if (svelteConfig.kit.files == null) svelteConfig.kit.files = {};
-				if (svelteConfig.kit.files.assets == null) svelteConfig.kit.files.assets = DEFAULT_STATIC_FOLDER;
-
-
-				backgroundTask = init(config, {
-					warn: this.warn,
-					info: this.info
-				});
-
-				this.emitFile({
-					type: "chunk",
-					id: "versioned-worker",
-					fileName: "sw.js", // Used instead of filename so there's no hash
-					source: await fs.readFile("plugins/worker.js")
-				});
-			}
+		configResolved(config) {
+			viteConfig = config;
+			isSSR = viteConfig.build.ssr;
 		},
+		async buildStart(options) {
+			if (isSSR) return;
+
+			svelteConfig = options.plugins.find(plugin => plugin.name == "vite-plugin-svelte");
+			if (svelteConfig == null) throw new VersionedWorkerError("Couldn't find SvelteKit plugin.");
+			svelteConfig = svelteConfig.api.options;
+
+			// For some reason this doesn't have the defaults which is cringe
+			if (svelteConfig.kit.files == null) svelteConfig.kit.files = {};
+			if (svelteConfig.kit.files.assets == null) svelteConfig.kit.files.assets = DEFAULT_STATIC_FOLDER;
+
+
+			backgroundTask = init(config, {
+				warn: this.warn,
+				info: this.info
+			});
+
+			this.emitFile({
+				type: "asset",
+				fileName: WORKER_FILE, // Used instead of filename so there's no hash
+				source: await fs.readFile("plugins/worker.js")
+			});
+		},
+
 		generateBundle: {
 			order: "post",
 			sequential: true,
 			async handler(_, bundle, isWrite) {
-				if (shouldIgnore) return;
+				if (isSSR) return;
 
 				await backgroundTask;
 
-				await cleanUp();
+				const simplifiedBundle = Object.create(null, {});
+				for (const [filePath, item] of Object.entries(bundle)) {
+					simplifiedBundle[filePath] = ;
+				}
+				await fs.writeFile(STAGE_SHARED_DATA, JSON.stringify({
+					lastBuild,
+					bundle: simplifiedBundle
+				}));
+				debugger;
 			}
 		},
 		closeBundle: {
 			order: "post",
 			sequential: true,
-			handler() {
-				// debugger;
+			async handler() {
+				if (! isSSR) return;
+
+				await cleanUp();
 			}
 		}
 	};
 }
-export const downloadLastInfo = {
-	degit: source => {
-		return async (tmpDir, methods) => {
-			const emitter = degit(source);
-		
-			let downloaded = true;
+export function degitLast(source) {
+	return async (tmpDir, methods) => {
+		const emitter = degit(source);
+	
+		let downloaded = true;
+		try {
+			await emitter.clone(tmpDir);
+		}
+		catch (error) {
+			methods.warn(`Couldn't download the last build, so assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
+
+			downloaded = false;
+		}
+
+		if (downloaded) {
+			const infoFile = path.join(tmpDir, INFO_FILE);
+			let exists = true;
 			try {
-				await emitter.clone(tmpDir);
-			}
-			catch (error) {
-				methods.warn(`Couldn't download the last build, so assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
-
-				downloaded = false;
-			}
-
-			if (downloaded) {
-				const infoFile = path.join(tmpDir, INFO_FILE);
-				let exists = true;
-				try {
-					await fs.stat(infoFile);
-				}
-				catch {
-					exists = false;
-				}
-
-				if (exists) return await fs.readFile(infoFile);
-				else return null;
-			}
-			else return null;
-		};
-	},
-	fetch: url => {
-		return async (_, methods) => {
-			let response;
-			try {
-				response = await fetch(url);
+				await fs.stat(infoFile);
 			}
 			catch {
-				methods.warn("Couldn't download the last build info file due a network error, So assuming this is the first build so this build can finish. You probably don't want to deploy this.");
-				return null;
+				exists = false;
 			}
 
-			if (response.ok) return await response.text();
-			else {
-				if (response.status == 404) {
-					methods.warn("Assuming this is the first version as downloading the last build info file resulted in a 404.");
-					return null;
-				}
-				else {
-					throw new VersionedWorkerError(`Got a ${response.status} HTTP error while trying to download the last build info.`);
-				}
+			if (exists) return await fs.readFile(infoFile);
+			else return null;
+		}
+		else return null;
+	};
+};
+export function fetchLast(url) {
+	return async (_, methods) => {
+		let response;
+		try {
+			response = await fetch(url);
+		}
+		catch {
+			methods.warn("Couldn't download the last build info file due a network error, So assuming this is the first build so this build can finish. You probably don't want to deploy this.");
+			return null;
+		}
+
+		if (response.ok) return await response.text();
+		else {
+			if (response.status == 404) {
+				methods.warn("Assuming this is the first version as downloading the last build info file resulted in a 404.");
+				return null;
 			}
-		};
-	}
+			else {
+				throw new VersionedWorkerError(`Got a ${response.status} HTTP error while trying to download the last build info.`);
+			}
+		}
+	};
 };

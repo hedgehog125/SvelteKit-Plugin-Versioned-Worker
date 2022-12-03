@@ -1,3 +1,7 @@
+<script>
+	import RegisterWorker from "$util/RegisterWorker.svelte";
+</script>
+
 <style>
 	::global(*) {
 		font-family: sans-serif;
@@ -7,4 +11,5 @@
 	}
 </style>
 
+<RegisterWorker></RegisterWorker>
 <slot></slot>
