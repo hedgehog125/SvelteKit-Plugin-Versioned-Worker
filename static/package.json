@@ -2,12 +2,13 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"debugDuringBuild": "npm --node-options=--inspect-brk run build",
+		"debugDuringBuild": "cross-env DISABLE_BASE_URL=true npm --node-options=--inspect-brk run build",
 		"testBuild": "cross-env DISABLE_BASE_URL=true vite build",
 		"preview": "http-server build"
 	},
 	"dependencies": {
-		"degit": "^2.8.4"
+		"degit": "^2.8.4",
+		"mime-types": "^2.1.35"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-static": "^1.0.0-next.48",

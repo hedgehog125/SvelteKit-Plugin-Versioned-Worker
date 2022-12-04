@@ -7,6 +7,7 @@ Build inputs:
  * STORAGE_PREFIX
  * VERSION
 */
+const currentStorageName = STORAGE_PREFIX + VERSION;
 const COMPLETE_CACHE_LIST = Object.create(null, {});
 const addToCacheList = hrefs => {
 	for (const href of hrefs) {
@@ -21,15 +22,16 @@ addToCacheList(LAZY_CACHE);
 addEventListener("install", e => {
     e.waitUntil(
 		(async _ => {
+			const cache = await caches.open(currentStorageName);
 
+			await cache.addAll(ROUTES);
+			await cache.addAll(PRECACHE);
 		})()
 	);
 });
 addEventListener("activate", e => {
 	e.waitUntil(
 		(async _ => {
-			const currentStorageName = STORAGE_PREFIX + VERSION;
-
 			// Clean up
 			const cacheNames = await caches.keys();
 			for (const cacheName of cacheNames) {
@@ -44,7 +46,9 @@ addEventListener("activate", e => {
 addEventListener("fetch", e => {
     e.respondWith(
         (async _ => {
-            let cache = await caches.open(STORAGE_PREFIX + VERSION);
+			const path = new URL(e.request.url).pathname;
+			console.log(e.request.url, path);
+            let cache = await caches.open(currentStorageName);
             let cached = await cache.match(e.request);
             if (cached) return cached;
         
@@ -53,13 +57,15 @@ addEventListener("fetch", e => {
                 resource = await fetch(e.request);
             }
             catch (error) {
-                console.error(`Couldn't fetch or serve from cache: ${e.request.url}`);
-                if (ROUTES.includes(e.request.url)) {
+				if (ROUTES.includes(path)) {
 					return new Response("Something went wrong. Please connect to the internet and try again.");
 				}
-				else return null;
+				else {
+					console.error(`Couldn't fetch or serve file from cache: ${path}`);
+					return Response.error();
+				}
             }
-            if (COMPLETE_CACHE_LIST[e.request.url]) {
+            if (COMPLETE_CACHE_LIST[path]) {
                 e.waitUntil(cache.put(e.request, resource.clone())); // Update it in the background
             }
             return resource;

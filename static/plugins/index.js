@@ -1,30 +1,38 @@
 /*
 TODO
 
+Built worker doesn't include variables sometimes and is sometimes blank
+Is the worker cached when using a base URL? It shouldn't be
 Call bundle.close
 Make recursiveList parrelel?
 */
 
 import path from "path";
+import { normalizePath } from "vite";
 import fs from "fs/promises";
 
-import crypto from "crypto";
 import degit from "degit";
+import mime from "mime-types";
 import { installPolyfills } from "@sveltejs/kit/node/polyfills";
 installPolyfills();
+
+import { deepClone, hash, recursiveList } from "./helper";
 
 
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
 const STAGE_SHARED_DATA = "tmp/stageSharedData.json";
 const WORKER_FILE = "sw.js";
-const WORKER_FOLDER = "sw";
+const VERSION_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
 const INFO_FILE = ".versionedWorker.json";
 const DEFAULT_STATIC_FOLDER = "static";
+const SVELTEKIT_PRERENDER_FOLDER = ".svelte-kit/output/prerendered/pages";
+const INTERNAL_BUILD_FOLDER = ".svelte-kit/output/client"; // Where the files are kept just before they're written
 
 
-const generateInitialInfo = svelteConfig => ({
+const newInitialInfo = svelteConfig => ({
 	formatVersion: 1,
+	version: -1,
 	filesAndFolders: [],
 	staticHashes: {},
 	svelteConfig
@@ -45,40 +53,6 @@ const makeTemp = async _ => {
 
 	await fs.mkdir("tmp");
 };
-const hash = data => {
-	const hasher = crypto.createHash("md5");
-	hasher.update(data);
-	return hasher.digest("hex");
-};
-export const recursiveList = async folder => {
-	let found = [];
-	await recursiveListSub(folder, found, "");
-	return found;
-};
-const recursiveListSub = async (folder, found, relativeFolderPath) => {
-	let files = await fs.readdir(folder);
-
-	for (let fileName of files) {
-		const filePath = path.join(folder, fileName);
-		const relativePath = path.join(relativeFolderPath, fileName);
-
-		let info = await fs.stat(filePath);
-		if (info.isDirectory()) {
-			found.push({
-				path: relativePath,
-				isFolder: true
-			});
-
-			await recursiveListSub(filePath, found, relativePath);
-		}
-		else if (info.isFile()) {
-			found.push({
-				path: relativePath,
-				isFolder: false
-			});
-		}
-	}
-};
 class VersionedWorkerError extends Error {};
 
 export function versionedWorker(config) {
@@ -94,39 +68,42 @@ export function versionedWorker(config) {
 	let backgroundTask;
 	let lastBuild;
 	let staticHashes;
+	let workerBase;
+	let storagePrefix;
 
 
 	const init = async (config, methods) => {
 		await makeTemp();
 		await fs.mkdir(DOWNLOAD_TMP);
 	
-		{
-			let output = config.lastInfo(DOWNLOAD_TMP, methods);
-			if (output instanceof Promise) output = await output;
-			if (output == null) output = generateInitialInfo(svelteConfig);
-			else {
-				try {
-					output = JSON.parse(output);
+		await Promise.all([
+			(async _ => {
+				let output = config.lastInfo(DOWNLOAD_TMP, methods);
+				if (output instanceof Promise) output = await output;
+				if (output == null) output = newInitialInfo(svelteConfig);
+				else {
+					try {
+						output = JSON.parse(output);
+					}
+					catch {
+						throw new VersionedWorkerError(`Couldn't parse the info file from the last build. Contents:\n${output}`);
+					}
 				}
-				catch {
-					throw new VersionedWorkerError(`Couldn't parse the info file from the last build. Contents:\n${output}`);
+				lastBuild = output;
+			})(),
+			(async _ => {
+				// Since the static files aren't changed during the build, we can start hashing them now
+				staticHashes = Object.create(null, {});
+				const staticFolder = path.join(svelteConfig.root, svelteConfig.kit.files.assets);
+				const staticFiles = await recursiveList(staticFolder);
+				for (const fileInfo of staticFiles) {
+					if (fileInfo.isFolder) continue;
+
+					const contents = await fs.readFile(path.join(staticFolder, fileInfo.path));
+					staticHashes[fileInfo.path] = hash(contents);
 				}
-			}
-			lastBuild = output;
-		}
-
-		// Since the static files aren't changed during the build, we can start hashing them now
-		{
-			staticHashes = Object.create(null, {});
-			const staticFolder = path.join(svelteConfig.root, svelteConfig.kit.files.assets);
-			const staticFiles = await recursiveList(staticFolder);
-			for (const fileInfo of staticFiles) {
-				if (fileInfo.isFolder) continue;
-
-				const contents = await fs.readFile(path.join(staticFolder, fileInfo.path));
-				staticHashes[fileInfo.path] = hash(contents);
-			}
-		}
+			})()
+		]);
 	};
 	const cleanUp = async _ => {
 		await fs.rm("tmp", {
@@ -139,48 +116,78 @@ export function versionedWorker(config) {
 		configResolved(config) {
 			viteConfig = config;
 			isSSR = viteConfig.build.ssr;
+
+			storagePrefix = config.storagePrefix;
+			if (storagePrefix == null) {
+				storagePrefix = viteConfig.base.slice(2); // It always starts with a "./"
+				if (storagePrefix == "") {
+					if (viteConfig.env.DISABLE_BASE_URL == "true") storagePrefix = "TestBuildCache";
+					else storagePrefix = "VersionedWorkerCache";
+				}
+				else {
+					if (storagePrefix.startsWith("/")) storagePrefix = storagePrefix.slice(1);
+					if (storagePrefix.endsWith("/")) storagePrefix = storagePrefix.slice(-1);
+				}
+
+			}
+			storagePrefix += "-";
 		},
 		async buildStart(options) {
-			if (isSSR) return;
-
 			svelteConfig = options.plugins.find(plugin => plugin.name == "vite-plugin-svelte");
 			if (svelteConfig == null) throw new VersionedWorkerError("Couldn't find SvelteKit plugin.");
-			svelteConfig = svelteConfig.api.options;
+			svelteConfig = deepClone(svelteConfig.api.options);
 
 			// For some reason this doesn't have the defaults which is cringe
 			if (svelteConfig.kit.files == null) svelteConfig.kit.files = {};
 			if (svelteConfig.kit.files.assets == null) svelteConfig.kit.files.assets = DEFAULT_STATIC_FOLDER;
 
+			if (svelteConfig.kit.trailingSlash == null) throw new VersionedWorkerError("svelteConfig.kit.trailingSlash must be set to \"always\".");
 
-			backgroundTask = init(config, {
-				warn: this.warn,
-				info: this.info
-			});
 
-			this.emitFile({
-				type: "asset",
-				fileName: WORKER_FILE, // Used instead of filename so there's no hash
-				source: await fs.readFile("plugins/worker.js")
+			if (! isSSR) {
+				backgroundTask = init(config, {
+					warn: this.warn,
+					info: this.info
+				});
+			}
+
+
+			workerBase = await fs.readFile("plugins/worker.js", {
+				encoding: "utf-8"
 			});
+			if (! isSSR) {
+				this.emitFile({
+					type: "asset",
+					fileName: WORKER_FILE, // Used instead of filename so there's no hash
+					source: workerBase
+				});
+			}
 		},
 
 		generateBundle: {
 			order: "post",
 			sequential: true,
-			async handler(_, bundle, isWrite) {
+			async handler(_, bundle) {
 				if (isSSR) return;
 
 				await backgroundTask;
 
+				// Remove the deprecated and unnecessary properties to prevent warnings and speed things up by reducing the file size
 				const simplifiedBundle = Object.create(null, {});
 				for (const [filePath, item] of Object.entries(bundle)) {
-					simplifiedBundle[filePath] = ;
+					const { type, name, fileName } = item;
+					simplifiedBundle[filePath] = {
+						type,
+						name,
+						fileName
+					};
 				}
+
 				await fs.writeFile(STAGE_SHARED_DATA, JSON.stringify({
 					lastBuild,
-					bundle: simplifiedBundle
+					bundle: simplifiedBundle,
+					staticHashes
 				}));
-				debugger;
 			}
 		},
 		closeBundle: {
@@ -188,8 +195,52 @@ export function versionedWorker(config) {
 			sequential: true,
 			async handler() {
 				if (! isSSR) return;
+				
+				const [
+					{ lastBuild, bundle, staticHashes },
+					routeFiles
+				] = await Promise.all([
+					(async _ => {
+						return JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
+					})(),
+					recursiveList(SVELTEKIT_PRERENDER_FOLDER)
+				]);
 
-				await cleanUp();
+				let routes = [];
+				for (const fileInfo of routeFiles) { // These will all be index.html files
+					if (fileInfo.isFolder) continue;
+
+					const filePath = normalizePath(fileInfo.path);
+					routes.push(viteConfig.base + filePath.slice(0, -10)); // 10 is the length of "index.html"
+				}
+
+				let precache = [];
+				let lazyCache = [];
+				for (const [filePath, fileInfo] of Object.entries(bundle)) {
+					if (filePath == WORKER_FILE) continue;
+
+					const output = config.lazyCache(mime.lookup(filePath), fileInfo, filePath, true);
+					if (output) lazyCache.push(filePath);
+					else precache.push(filePath);
+				}
+				for (const [filePath, hash] of Object.entries(staticHashes)) {
+					const output = config.lazyCache(mime.lookup(filePath), hash, filePath, false);
+					if (output) lazyCache.push(filePath);
+					else precache.push(filePath);
+				}
+
+				const version = lastBuild.version + 1;
+
+				// Contains: routes, precache, lazyCache, storagePrefix and version
+				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};`
+
+				await Promise.all([
+					fs.writeFile(
+						path.join(viteConfig.root, INTERNAL_BUILD_FOLDER, WORKER_FILE),
+						codeForConstants + workerBase
+					),
+					cleanUp()
+				]);
 			}
 		}
 	};
@@ -218,7 +269,7 @@ export function degitLast(source) {
 				exists = false;
 			}
 
-			if (exists) return await fs.readFile(infoFile);
+			if (exists) return await fs.readFile(infoFile, { encoding: "utf-8" });
 			else return null;
 		}
 		else return null;
