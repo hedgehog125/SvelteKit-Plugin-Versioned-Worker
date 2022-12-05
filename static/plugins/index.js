@@ -2,6 +2,7 @@
 TODO
 
 Built worker doesn't include variables sometimes and is sometimes blank
+Writing the worker can cause an error, or it can be missing
 Is the worker cached when using a base URL? It shouldn't be
 Call bundle.close
 Make recursiveList parrelel?
@@ -57,6 +58,7 @@ class VersionedWorkerError extends Error {};
 
 export function versionedWorker(config) {
 	if (config.lazyCache == null) config.lazyCache = _ => false; 
+	if (config.buildDir == null) config.buildDir = "build";
 
 	const dev = process.env.NODE_ENV != "production";
 	if (dev) return null;
@@ -155,13 +157,6 @@ export function versionedWorker(config) {
 			workerBase = await fs.readFile("plugins/worker.js", {
 				encoding: "utf-8"
 			});
-			if (! isSSR) {
-				this.emitFile({
-					type: "asset",
-					fileName: WORKER_FILE, // Used instead of filename so there's no hash
-					source: workerBase
-				});
-			}
 		},
 
 		generateBundle: {
@@ -203,7 +198,8 @@ export function versionedWorker(config) {
 					(async _ => {
 						return JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
 					})(),
-					recursiveList(SVELTEKIT_PRERENDER_FOLDER)
+					recursiveList(SVELTEKIT_PRERENDER_FOLDER),
+					new Promise(resolve => setTimeout(_ => { resolve() }, 1000))
 				]);
 
 				let routes = [];
@@ -232,11 +228,11 @@ export function versionedWorker(config) {
 				const version = lastBuild.version + 1;
 
 				// Contains: routes, precache, lazyCache, storagePrefix and version
-				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};`
+				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};`;
 
 				await Promise.all([
 					fs.writeFile(
-						path.join(viteConfig.root, INTERNAL_BUILD_FOLDER, WORKER_FILE),
+						path.join(viteConfig.root, config.buildDir, WORKER_FILE),
 						codeForConstants + workerBase
 					),
 					cleanUp()
@@ -254,7 +250,7 @@ export function degitLast(source) {
 			await emitter.clone(tmpDir);
 		}
 		catch (error) {
-			methods.warn(`Couldn't download the last build, so assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
+			methods.warn(`\nCouldn't download the last build, so assuming this is the first version. If it isn't, don't deploy this build! Error:\n${error}`);
 
 			downloaded = false;
 		}
@@ -282,14 +278,14 @@ export function fetchLast(url) {
 			response = await fetch(url);
 		}
 		catch {
-			methods.warn("Couldn't download the last build info file due a network error, So assuming this is the first build so this build can finish. You probably don't want to deploy this.");
+			methods.warn("\nCouldn't download the last build info file due a network error, So assuming this is the first build so this build can finish. You probably don't want to deploy this.");
 			return null;
 		}
 
 		if (response.ok) return await response.text();
 		else {
 			if (response.status == 404) {
-				methods.warn("Assuming this is the first version as downloading the last build info file resulted in a 404.");
+				methods.warn("\nAssuming this is the first version as downloading the last build info file resulted in a 404.");
 				return null;
 			}
 			else {

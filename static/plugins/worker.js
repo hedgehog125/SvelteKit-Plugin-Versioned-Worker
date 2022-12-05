@@ -47,7 +47,6 @@ addEventListener("fetch", e => {
     e.respondWith(
         (async _ => {
 			const path = new URL(e.request.url).pathname;
-			console.log(e.request.url, path);
             let cache = await caches.open(currentStorageName);
             let cached = await cache.match(e.request);
             if (cached) return cached;
