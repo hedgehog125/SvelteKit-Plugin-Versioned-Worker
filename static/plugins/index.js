@@ -1,6 +1,8 @@
 /*
 TODO
 
+Do all the reading for the last hook in an earlier hook and hope for the best. It'll probably work 99% of the time
+
 Built worker doesn't include variables sometimes and is sometimes blank
 Writing the worker can cause an error, or it can be missing
 Is the worker cached when using a base URL? It shouldn't be
@@ -60,9 +62,6 @@ export function versionedWorker(config) {
 	if (config.lazyCache == null) config.lazyCache = _ => false; 
 	if (config.buildDir == null) config.buildDir = "build";
 
-	const dev = process.env.NODE_ENV != "production";
-	if (dev) return null;
-
 	let viteConfig;
 	let svelteConfig;
 
@@ -72,6 +71,7 @@ export function versionedWorker(config) {
 	let staticHashes;
 	let workerBase;
 	let storagePrefix;
+	let secondStageData;
 
 
 	const init = async (config, methods) => {
@@ -107,6 +107,9 @@ export function versionedWorker(config) {
 			})()
 		]);
 	};
+	const secondInit = async (config, methods) => {
+		secondStageData = JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
+	};
 	const cleanUp = async _ => {
 		await fs.rm("tmp", {
 			recursive: true
@@ -115,6 +118,7 @@ export function versionedWorker(config) {
 
 	return {
 		name: "versioned-worker",
+		apply: "build",
 		configResolved(config) {
 			viteConfig = config;
 			isSSR = viteConfig.build.ssr;
@@ -146,7 +150,13 @@ export function versionedWorker(config) {
 			if (svelteConfig.kit.trailingSlash == null) throw new VersionedWorkerError("svelteConfig.kit.trailingSlash must be set to \"always\".");
 
 
-			if (! isSSR) {
+			if (isSSR) {
+				backgroundTask = secondInit(config, {
+					warn: this.warn,
+					info: this.info
+				});
+			}
+			else {
 				backgroundTask = init(config, {
 					warn: this.warn,
 					info: this.info
@@ -187,27 +197,21 @@ export function versionedWorker(config) {
 		},
 		closeBundle: {
 			order: "post",
+			enforce: "post",
 			sequential: true,
 			async handler() {
 				if (! isSSR) return;
+				await backgroundTask;
 				
-				const [
-					{ lastBuild, bundle, staticHashes },
-					routeFiles
-				] = await Promise.all([
-					(async _ => {
-						return JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
-					})(),
-					recursiveList(SVELTEKIT_PRERENDER_FOLDER),
-					new Promise(resolve => setTimeout(_ => { resolve() }, 1000))
-				]);
+				const { lastBuild, bundle, staticHashes } = secondStageData;
+				const routeFiles = await recursiveList(SVELTEKIT_PRERENDER_FOLDER);
 
 				let routes = [];
 				for (const fileInfo of routeFiles) { // These will all be index.html files
 					if (fileInfo.isFolder) continue;
 
 					const filePath = normalizePath(fileInfo.path);
-					routes.push(viteConfig.base + filePath.slice(0, -10)); // 10 is the length of "index.html"
+					routes.push(viteConfig.base + filePath.slice(0, -10)); // 10 is the length of "index.html", which they all end with
 				}
 
 				let precache = [];
@@ -230,6 +234,7 @@ export function versionedWorker(config) {
 				// Contains: routes, precache, lazyCache, storagePrefix and version
 				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};`;
 
+				await fs.stat(path.join(viteConfig.root, config.buildDir)); // I think node sometimes doesn't realise the build folder exists without this
 				await Promise.all([
 					fs.writeFile(
 						path.join(viteConfig.root, config.buildDir, WORKER_FILE),
