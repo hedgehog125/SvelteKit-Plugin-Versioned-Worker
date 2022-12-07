@@ -1,12 +1,9 @@
 /*
 TODO
 
-Do all the reading for the last hook in an earlier hook and hope for the best. It'll probably work 99% of the time
-
-Built worker doesn't include variables sometimes and is sometimes blank
-Writing the worker can cause an error, or it can be missing
 Is the worker cached when using a base URL? It shouldn't be
 Call bundle.close
+Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
 Make recursiveList parrelel?
 */
 
@@ -77,7 +74,10 @@ export function versionedWorker(config) {
 	
 		await Promise.all([
 			(async _ => {
-				let output = config.lastInfo(DOWNLOAD_TMP, methods);
+				let output = config.lastInfo(DOWNLOAD_TMP, methods, {
+					viteConfig,
+					svelteConfig
+				});
 				if (output instanceof Promise) output = await output;
 				if (output == null) output = newInitialInfo(svelteConfig);
 				else {
@@ -106,7 +106,9 @@ export function versionedWorker(config) {
 	};
 	const secondInit = async _ => {
 		secondStageData = JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
-		secondStageData.lastBuild.staticHashes = new Map(Object.entries(secondStageData.lastBuild.staticHashes));
+
+		secondStageData.staticHashes = new Map(Object.entries(secondStageData.staticHashes)); // New hashes
+		secondStageData.lastBuild.staticHashes = new Map(Object.entries(secondStageData.lastBuild.staticHashes)); // Old hashes
 	};
 	const cleanUp = async _ => {
 		await fs.rm("tmp", {
@@ -244,7 +246,7 @@ export function versionedWorker(config) {
 					if (output) lazyCache.push(filePath);
 					else precache.push(filePath);
 				}
-				for (const [filePath, hash] of Object.entries(staticHashes)) {
+				for (const [filePath, hash] of staticHashes) {
 					const output = config.lazyCache(mime.lookup(filePath), hash, filePath, false);
 					if (output) lazyCache.push(filePath);
 					else precache.push(filePath);
@@ -262,6 +264,7 @@ export function versionedWorker(config) {
 				catch {
 					throw new VersionedWorkerError(`Couldn't find your build folder ${JSON.stringify(config.buildDir)}, make sure the "buildDir" property of this plugin's config matches the output directory in your SvelteKit adapter static config.`);
 				}
+
 				await Promise.all([
 					fs.writeFile(
 						path.join(viteConfig.root, config.buildDir, WORKER_FILE),
@@ -289,7 +292,7 @@ export function versionedWorker(config) {
 					),
 					fs.writeFile(
 						path.join(viteConfig.root, config.buildDir, INFO_FILE),
-						JSON.stringify(buildInfo)
+						stringifyPlus(buildInfo)
 					),
 					cleanUp()
 				]);
@@ -348,5 +351,21 @@ export function fetchLast(url) {
 				throw new VersionedWorkerError(`Got a ${response.status} HTTP error while trying to download the last build info.`);
 			}
 		}
+	};
+};
+export function readLast(filePath) {
+	return async (_, methods, { viteConfig }) => {
+		if (! path.isAbsolute(filePath)) filePath = path.join(viteConfig.root, filePath);
+
+		let contents;
+		try {
+			contents = await fs.readFile(filePath);
+		}
+		catch {
+			methods.warn("\nAssuming this is the first version as the last build info file doesn't exist at that path.");
+			return null;
+		}
+
+		return contents;
 	};
 };

@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import MobileNewline from "$util/MobileNewline.svelte";
 	import linkPage from "$util/LinkPage.js";
+	import bagelImg from "$img/bagel.png";
 
 	import { textboxes } from "$lib/Demo.js";
 
@@ -12,6 +13,7 @@
 </script>
 
 <main>
+	<img src={bagelImg} alt="A pixel art bagel"> <br>
 	<p>
 		This is a simple demo of the small tools that are included in this template. As well as some reminders for problems I've already solved.
 	</p> <br>
