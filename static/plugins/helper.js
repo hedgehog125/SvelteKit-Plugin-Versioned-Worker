@@ -3,6 +3,11 @@ import fs from "fs/promises";
 
 import crypto from "crypto";
 
+export class VersionedWorkerError extends Error {
+	constructor(message) {
+		super("VersionedWorkerError: " + message);
+	}
+};
 
 export function deepClone(ob) {
 	if (typeof ob != "object") return ob; // Primative
@@ -17,6 +22,15 @@ export function deepClone(ob) {
 		}
 	}
 };
+export function stringifyPlus(ob) {
+	return JSON.stringify(ob, (_, subValue) => {
+		if (subValue instanceof Map) {
+			return Object.fromEntries(subValue);
+		}
+		return subValue;
+	});
+};
+
 export function hash(data) {
 	const hasher = crypto.createHash("md5");
 	hasher.update(data);
@@ -51,4 +65,13 @@ const recursiveListSub = async (folder, found, relativeFolderPath) => {
 			});
 		}
 	}
+};
+
+export function newInitialInfo() {
+	return {
+		formatVersion: 1,
+		version: -1,
+		versions: [],
+		staticHashes: {}
+	};
 };

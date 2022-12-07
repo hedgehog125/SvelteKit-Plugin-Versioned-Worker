@@ -71,3 +71,12 @@ addEventListener("fetch", e => {
         })()
     );
 });
+
+/*
+export function parseUpdatedList(contents) {
+	contents = contents.split("\r\n").join("\n");
+
+	const version = contents.slice(0, contents.indexOf("\n"));
+	if (version != "1") throw new VersionedWorkerError(`Unknown format version ${JSON.stringify(version)} in the most recent version file (not version.txt, the ones containing the changed files).`);
+};
+*/

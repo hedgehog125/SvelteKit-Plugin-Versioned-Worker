@@ -19,7 +19,11 @@ import mime from "mime-types";
 import { installPolyfills } from "@sveltejs/kit/node/polyfills";
 installPolyfills();
 
-import { deepClone, hash, recursiveList } from "./helper";
+import {
+	deepClone,hash, recursiveList,
+	stringifyPlus, newInitialInfo,
+	VersionedWorkerError
+} from "./helper";
 
 
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
@@ -30,16 +34,10 @@ const VERSION_FILE = "version.txt";
 const INFO_FILE = ".versionedWorker.json";
 const DEFAULT_STATIC_FOLDER = "static";
 const SVELTEKIT_PRERENDER_FOLDER = ".svelte-kit/output/prerendered/pages";
-const INTERNAL_BUILD_FOLDER = ".svelte-kit/output/client"; // Where the files are kept just before they're written
 
+const VERSION_FILE_BATCH_SIZE = 10;
+const MAX_VERSION_FILES = 10;
 
-const newInitialInfo = svelteConfig => ({
-	formatVersion: 1,
-	version: -1,
-	filesAndFolders: [],
-	staticHashes: {},
-	svelteConfig
-});
 const makeTemp = async _ => {
 	let exists = true;
 	try {
@@ -56,7 +54,6 @@ const makeTemp = async _ => {
 
 	await fs.mkdir("tmp");
 };
-class VersionedWorkerError extends Error {};
 
 export function versionedWorker(config) {
 	if (config.lazyCache == null) config.lazyCache = _ => false; 
@@ -95,20 +92,21 @@ export function versionedWorker(config) {
 			})(),
 			(async _ => {
 				// Since the static files aren't changed during the build, we can start hashing them now
-				staticHashes = Object.create(null, {});
+				staticHashes = new Map();
 				const staticFolder = path.join(svelteConfig.root, svelteConfig.kit.files.assets);
 				const staticFiles = await recursiveList(staticFolder);
 				for (const fileInfo of staticFiles) {
 					if (fileInfo.isFolder) continue;
 
 					const contents = await fs.readFile(path.join(staticFolder, fileInfo.path));
-					staticHashes[fileInfo.path] = hash(contents);
+					staticHashes.set(fileInfo.path, hash(contents));
 				}
 			})()
 		]);
 	};
-	const secondInit = async (config, methods) => {
+	const secondInit = async _ => {
 		secondStageData = JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
+		secondStageData.lastBuild.staticHashes = new Map(Object.entries(secondStageData.lastBuild.staticHashes));
 	};
 	const cleanUp = async _ => {
 		await fs.rm("tmp", {
@@ -151,10 +149,7 @@ export function versionedWorker(config) {
 
 
 			if (isSSR) {
-				backgroundTask = secondInit(config, {
-					warn: this.warn,
-					info: this.info
-				});
+				backgroundTask = secondInit();
 			}
 			else {
 				backgroundTask = init(config, {
@@ -188,7 +183,7 @@ export function versionedWorker(config) {
 					};
 				}
 
-				await fs.writeFile(STAGE_SHARED_DATA, JSON.stringify({
+				await fs.writeFile(STAGE_SHARED_DATA, stringifyPlus({
 					lastBuild,
 					bundle: simplifiedBundle,
 					staticHashes
@@ -203,9 +198,35 @@ export function versionedWorker(config) {
 				if (! isSSR) return;
 				await backgroundTask;
 				
-				const { lastBuild, bundle, staticHashes } = secondStageData;
-				const routeFiles = await recursiveList(SVELTEKIT_PRERENDER_FOLDER);
+				const { lastBuild: buildInfo, bundle, staticHashes } = secondStageData;
+				{
+					buildInfo.version++;
 
+					const isNewBatch = buildInfo.version % VERSION_FILE_BATCH_SIZE == 0;
+					let updated = isNewBatch?
+						new Set()
+						: new Set(buildInfo.versions[buildInfo.versions.length - 1].updated)
+					;
+					for (const [fileName, hash] of buildInfo.staticHashes) {
+						if (! staticHashes.has(fileName)) continue; // It's a new file
+
+						if (staticHashes.get(fileName) != hash) {
+							updated.add(fileName);
+						}
+					}
+
+					buildInfo.versions[isNewBatch?
+						buildInfo.versions.length
+						: buildInfo.versions.length - 1
+					] = {
+						formatVersion: 1,
+						updated: Array.from(updated)
+					};
+					buildInfo.staticHashes = staticHashes;
+				}
+
+				
+				const routeFiles = await recursiveList(SVELTEKIT_PRERENDER_FOLDER);
 				let routes = [];
 				for (const fileInfo of routeFiles) { // These will all be index.html files
 					if (fileInfo.isFolder) continue;
@@ -229,16 +250,46 @@ export function versionedWorker(config) {
 					else precache.push(filePath);
 				}
 
-				const version = lastBuild.version + 1;
+				const version = buildInfo.version;
 
 				// Contains: routes, precache, lazyCache, storagePrefix and version
 				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};`;
 
-				await fs.stat(path.join(viteConfig.root, config.buildDir)); // I think node sometimes doesn't realise the build folder exists without this
+				await new Promise(resolve => setTimeout(_ => { resolve() }, 500)); // Just give SvelteKit half a second to finish, although it should all be done by the time this runs
+				try {
+					await fs.stat(path.join(viteConfig.root, config.buildDir)); // I think node sometimes doesn't realise the build folder exists without this
+				}
+				catch {
+					throw new VersionedWorkerError(`Couldn't find your build folder ${JSON.stringify(config.buildDir)}, make sure the "buildDir" property of this plugin's config matches the output directory in your SvelteKit adapter static config.`);
+				}
 				await Promise.all([
 					fs.writeFile(
 						path.join(viteConfig.root, config.buildDir, WORKER_FILE),
 						codeForConstants + workerBase
+					),
+					(async _ => { // Version files
+						const versionPath = path.join(viteConfig.root, config.buildDir, VERSION_FOLDER);
+						await fs.mkdir(versionPath);
+
+						let writes = [];
+						for (let fileID in buildInfo.versions) {
+							const versionBatch = buildInfo.versions[fileID];
+
+							const contents = `${versionBatch.formatVersion}\n${versionBatch.updated.join("\n")}`;
+							writes.push(
+								fs.writeFile(path.join(versionPath, fileID + ".txt"), contents)
+							);
+						}
+
+						await Promise.all(writes);
+					})(),
+					fs.writeFile(
+						path.join(viteConfig.root, config.buildDir, VERSION_FOLDER, VERSION_FILE),
+						version.toString()
+					),
+					fs.writeFile(
+						path.join(viteConfig.root, config.buildDir, INFO_FILE),
+						JSON.stringify(buildInfo)
 					),
 					cleanUp()
 				]);
