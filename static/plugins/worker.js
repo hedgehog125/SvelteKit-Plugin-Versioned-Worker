@@ -6,6 +6,8 @@ Build inputs:
  * LAZY_CACHE
  * STORAGE_PREFIX
  * VERSION
+ * WORKER_FILE
+ * VERSION_FILE
 */
 const currentStorageName = STORAGE_PREFIX + VERSION;
 const COMPLETE_CACHE_LIST = Object.create(null, {});
@@ -32,6 +34,7 @@ addEventListener("install", e => {
 addEventListener("activate", e => {
 	e.waitUntil(
 		(async _ => {
+			await clients.claim();
 			// Clean up
 			const cacheNames = await caches.keys();
 			for (const cacheName of cacheNames) {
@@ -46,30 +49,44 @@ addEventListener("activate", e => {
 addEventListener("fetch", e => {
     e.respondWith(
         (async _ => {
+			const isPage = e.request.mode == "navigate" && e.request.method == "GET";
+			if (isPage && registration.waiting) { // Based on https://redfin.engineering/how-to-fix-the-refresh-button-when-using-service-workers-a8e27af6df68
+				const clients = await clients.matchAll();
+				if (clients.length <= 1) {
+					registration.waiting.postMessage("skipWaiting");
+					return new Response("", {headers: {Refresh: "0"}}); // Send an empty response but with a refresh header so it reloads instantly
+				}
+			}
+
 			const path = new URL(e.request.url).pathname;
-            let cache = await caches.open(currentStorageName);
-            let cached = await cache.match(e.request);
-            if (cached) return cached;
-        
-            let resource;
-            try {
-                resource = await fetch(e.request);
-            }
-            catch (error) {
-				if (ROUTES.includes(path)) {
+			let cache = await caches.open(currentStorageName);
+			let cached = await cache.match(e.request);
+			if (cached) return cached;
+		
+			let resource;
+			try {
+				resource = await fetch(e.request);
+			}
+			catch {
+				if (ROUTES.includes(path) && isPage) {
 					return new Response("Something went wrong. Please connect to the internet and try again.");
 				}
 				else {
-					console.error(`Couldn't fetch or serve file from cache: ${path}`);
+					if (COMPLETE_CACHE_LIST[path]) {
+						console.error(`Couldn't fetch or serve file from cache: ${path}`);
+					}
 					return Response.error();
 				}
-            }
-            if (COMPLETE_CACHE_LIST[path]) {
-                e.waitUntil(cache.put(e.request, resource.clone())); // Update it in the background
-            }
-            return resource;
+			}
+			if (COMPLETE_CACHE_LIST[path] && e.request.method == "GET") {
+				e.waitUntil(cache.put(e.request, resource.clone())); // Update it in the background
+			}
+			return resource;
         })()
     );
+});
+addEventListener("message", ({ data }) => {
+	if (data == "skipWaiting") skipWaiting();
 });
 
 /*
