@@ -7,7 +7,10 @@ Build inputs:
  * STORAGE_PREFIX
  * VERSION
  * WORKER_FILE
- * VERSION_FILE
+ * VERSION_FILE (not needed?)
+ * VERSION_FOLDER
+ * VERSION_FILE_BATCH_SIZE
+ * MAX_VERSION_FILES
 */
 const currentStorageName = STORAGE_PREFIX + VERSION;
 const COMPLETE_CACHE_LIST = Object.create(null, {});
@@ -20,14 +23,99 @@ addToCacheList(ROUTES);
 addToCacheList(PRECACHE);
 addToCacheList(LAZY_CACHE);
 
+const parseUpdatedList = contents => {
+	contents = contents.split("\r\n").join("\n");
+
+	const splitPoint = contents.indexOf("\n");
+	const version = contents.slice(0, splitPoint);
+	if (version != "1") throw new Error(`Unknown format version ${JSON.stringify(version)} in the most recent version file (not version.txt, the ones containing the changed files).`);
+	
+	return {
+		formatVersion: 1,
+		updated: contents.slice(splitPoint + 1).split("\n")
+	};
+};
+
 
 addEventListener("install", e => {
     e.waitUntil(
 		(async _ => {
-			const cache = await caches.open(currentStorageName);
+			let installedVersions = [];
+			let updated = new Set();
+			let doCleanInstall = false;
+			{
+				const cacheNames = await caches.keys();
+				for (const cacheName of cacheNames) {
+					if (! cacheName.startsWith(STORAGE_PREFIX)) continue;
+					if (cacheName == currentStorageName) continue;
+	
+					installedVersions.push(
+						parseInt(cacheName.slice(STORAGE_PREFIX.length))
+					);
+				}
+				installedVersions = installedVersions.sort((n1, n2) => n2 - n1); // Newest (highest) first
+				const newestInstalled = Math.max(...installedVersions);
+	
+				// Fetch all the version files between the versions
+				let versionFiles = [];
+				for (let version = newestInstalled; version <= VERSION; version += VERSION_FILE_BATCH_SIZE) {
+					versionFiles.push(fetch(`${VERSION_FOLDER}/${Math.floor(version / VERSION_FILE_BATCH_SIZE)}.txt`));
 
-			await cache.addAll(ROUTES);
-			await cache.addAll(PRECACHE);
+					if (versionFiles.length > MAX_VERSION_FILES) {
+						doCleanInstall = true;
+						break;
+					}
+				}
+	
+				if (! doCleanInstall) {
+					versionFiles = await Promise.all(versionFiles);
+					versionFiles = await Promise.all(versionFiles.map(res => res.text()));
+					versionFiles = versionFiles.map(parseUpdatedList);
+
+					for (const versionFile of versionFiles) {
+						for (const href of versionFile.updated) {
+							updated.add(href);
+						}
+					}
+				}
+			}
+
+			const toDownload = new Set([
+				...ROUTES,
+				...PRECACHE
+			]);
+			const toCopy = [];
+			if (! doCleanInstall) { // A clean install just means that old caches aren't reused
+				const cacheNames = await caches.keys();
+				for (const cacheName of cacheNames) {
+					if (! cacheName.startsWith(STORAGE_PREFIX)) continue;
+					if (cacheName == currentStorageName) continue;
+					
+					const cache = await caches.open(cacheName);
+					const existsList = await Promise.all([...toDownload].map(href => {
+						return (async _ => {
+							return [href, (await cache.match(href)) !== undefined];
+						})();
+					}));
+
+					for (const [href, exists] of existsList) {
+						if (exists && (! (updated.has(href) || ROUTES.includes(href)))) {
+							toCopy.push([href, cache]);
+							toDownload.delete(href);
+						}
+					}
+				}
+			}
+
+			const cache = await caches.open(currentStorageName);
+			await Promise.all([
+				cache.addAll(toDownload),
+				...toCopy.map(([href, oldCache]) => {
+					return (async _ => {
+						await cache.put(href, await oldCache.match(href));
+					})();
+				})
+			]);
 		})()
 	);
 });
@@ -88,12 +176,3 @@ addEventListener("fetch", e => {
 addEventListener("message", ({ data }) => {
 	if (data == "skipWaiting") skipWaiting();
 });
-
-/*
-export function parseUpdatedList(contents) {
-	contents = contents.split("\r\n").join("\n");
-
-	const version = contents.slice(0, contents.indexOf("\n"));
-	if (version != "1") throw new VersionedWorkerError(`Unknown format version ${JSON.stringify(version)} in the most recent version file (not version.txt, the ones containing the changed files).`);
-};
-*/

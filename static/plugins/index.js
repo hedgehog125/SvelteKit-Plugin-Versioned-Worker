@@ -1,7 +1,10 @@
 /*
 TODO
 
-Send error response if there's no worker update and use the fetch event to trigger checking the version
+Hash and compare everything, but still exclude routes as they're assumed to have changed
+Implement MAX_VERSION_FILES
+Is the version.txt file needed? It's at least not needed in the worker right?
+Network error handling in install
 Is the worker cached when using a base URL? It shouldn't be
 Call bundle.close
 Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
@@ -256,7 +259,7 @@ export function versionedWorker(config) {
 				const version = buildInfo.version;
 
 				// Contains: routes, precache, lazyCache, storagePrefix and version
-				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${JSON.stringify(version)};const WORKER_FILE=${JSON.stringify(WORKER_FILE)};const VERSION_FILE=${JSON.stringify(`${VERSION_FOLDER}/${VERSION_FILE}`)};`;
+				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const WORKER_FILE=${JSON.stringify(WORKER_FILE)};const VERSION_FILE=${JSON.stringify(`${VERSION_FILE}`)};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};`;
 
 				await new Promise(resolve => setTimeout(_ => { resolve() }, 500)); // Just give SvelteKit half a second to finish, although it should all be done by the time this runs
 				try {
