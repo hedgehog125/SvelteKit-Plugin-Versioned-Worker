@@ -102,6 +102,8 @@ addEventListener("install", e => {
 						if (exists && (! (updated.has(href) || ROUTES.includes(href)))) {
 							toCopy.push([href, cache]);
 							toDownload.delete(href);
+
+							console.log(`Reused: ${href}`);
 						}
 					}
 				}
@@ -139,8 +141,8 @@ addEventListener("fetch", e => {
         (async _ => {
 			const isPage = e.request.mode == "navigate" && e.request.method == "GET";
 			if (isPage && registration.waiting) { // Based on https://redfin.engineering/how-to-fix-the-refresh-button-when-using-service-workers-a8e27af6df68
-				const clients = await clients.matchAll();
-				if (clients.length <= 1) {
+				const activeClients = await clients.matchAll();
+				if (activeClients.length <= 1) {
 					registration.waiting.postMessage("skipWaiting");
 					return new Response("", {headers: {Refresh: "0"}}); // Send an empty response but with a refresh header so it reloads instantly
 				}

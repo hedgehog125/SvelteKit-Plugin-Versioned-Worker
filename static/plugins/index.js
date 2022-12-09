@@ -1,8 +1,10 @@
 /*
 TODO
 
-Hash and compare everything, but still exclude routes as they're assumed to have changed
-Implement MAX_VERSION_FILES
+Hash and compare everything, but still exclude routes as they're assumed to have changed. Or maybe just do it for files that have file names instead of names. Particularly important because of files like the vite manifest. Maybe also scan for any unmentioned files in the final output and hash and compare those
+
+
+Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. ALso do the same for .versionedWorker.json
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
 Is the worker cached when using a base URL? It shouldn't be
@@ -10,6 +12,8 @@ Call bundle.close
 Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
 Export things like the version folder name to import into components. Particularly the cache storage name
 Make recursiveList parrelel?
+
+Updating the worker on refresh still doesn't work in firefox. Find a workaround or is it fine?
 */
 
 import path from "path";
