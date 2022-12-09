@@ -1,6 +1,8 @@
 /*
 TODO
 
+The storage prefix can lose a character at the start
+
 Hash and compare everything, but still exclude routes as they're assumed to have changed. Or maybe just do it for files that have file names instead of names. Particularly important because of files like the vite manifest. Maybe also scan for any unmentioned files in the final output and hash and compare those
 
 

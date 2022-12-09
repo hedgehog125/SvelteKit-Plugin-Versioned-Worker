@@ -1,5 +1,6 @@
 const BUILD_PATH = "../static/build";
 const DEPLOY_PATH = "../../Deploys/SvelteKit-Plugin-Versioned-Worker/";
+const DOTFILES_TO_COPY = [".versionedWorker.json"];
 const CONFIGURED = true;
 
 
@@ -9,6 +10,7 @@ path.changeSandboxScope.backOne();
 path.changeSandboxScope.backOne();
 import { clearDir, recursiveList } from "./src/helper.js";
 
+const shouldIgnore = fileName => fileName.startsWith(".") && (! DOTFILES_TO_COPY.includes(fileName));
 const main = async _ => {
 	if (! CONFIGURED) {
 		const parentFolder = path.join(process.cwd(), "../../");
@@ -67,7 +69,7 @@ Now run this file again.`
 	for (let fileInfo of buildFiles) {
 		let newfilePath = path.sandboxPath(path.join(deployPath, fileInfo.path));
 		let fileName = path.basename(newfilePath);
-		if (fileName[0] == ".") continue;
+		if (shouldIgnore(fileName)) continue;
 		if (! fileInfo.isFolder) continue;
 
 		await fs.mkdir(newfilePath);
@@ -77,7 +79,7 @@ Now run this file again.`
 	for (let fileInfo of buildFiles) {
 		let newfilePath = path.sandboxPath(path.join(deployPath, fileInfo.path));
 		let fileName = path.basename(newfilePath);
-		if (fileName[0] == ".") continue;
+		if (shouldIgnore(fileName)) continue;
 		if (fileInfo.isFolder) continue;
 		
 
