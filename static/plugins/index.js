@@ -7,9 +7,11 @@ Hash and compare everything, but still exclude routes as they're assumed to have
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. ALso do the same for .versionedWorker.json
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
-Is the worker cached when using a base URL? It shouldn't be
 Call bundle.close
 Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
+
+How are lazy loaded range requests handled? Particularly when updating, are they copied?
+
 Export things like the version folder name to import into components. Particularly the cache storage name
 Make recursiveList parrelel?
 
@@ -140,7 +142,7 @@ export function versionedWorker(config) {
 				}
 				else {
 					if (storagePrefix.startsWith("/")) storagePrefix = storagePrefix.slice(1);
-					if (storagePrefix.endsWith("/")) storagePrefix = storagePrefix.slice(-1);
+					if (storagePrefix.endsWith("/")) storagePrefix = storagePrefix.slice(0, -1);
 				}
 
 			}
@@ -252,7 +254,7 @@ export function versionedWorker(config) {
 
 					const output = config.lazyCache(mime.lookup(filePath), fileInfo, filePath, true);
 					if (output) lazyCache.push(filePath);
-					else precache.push(filePath);
+					else precache.push(viteConfig.base + filePath);
 				}
 				for (const [filePath, hash] of staticHashes) {
 					const output = config.lazyCache(mime.lookup(filePath), hash, filePath, false);
@@ -263,7 +265,7 @@ export function versionedWorker(config) {
 				const version = buildInfo.version;
 
 				// Contains: routes, precache, lazyCache, storagePrefix and version
-				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const WORKER_FILE=${JSON.stringify(WORKER_FILE)};const VERSION_FILE=${JSON.stringify(`${VERSION_FILE}`)};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};`;
+				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};`;
 
 				await new Promise(resolve => setTimeout(_ => { resolve() }, 500)); // Just give SvelteKit half a second to finish, although it should all be done by the time this runs
 				try {

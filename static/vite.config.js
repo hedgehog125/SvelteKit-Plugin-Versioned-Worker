@@ -5,8 +5,9 @@ const config = {
 	plugins: [
 		sveltekit(),
 		versionedWorker({
-			lastInfo: readLast("build/.versionedWorker.json")
-			//lastInfo: fetchLast("https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker/.versionedWorker.json")
+			lastInfo: process.env.DISABLE_BASE_URL?
+				readLast("build/.versionedWorker.json")
+				: fetchLast("https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker/.versionedWorker.json")
 		})
 	]
 };
