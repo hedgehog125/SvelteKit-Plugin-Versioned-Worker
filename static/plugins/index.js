@@ -1,8 +1,6 @@
 /*
 TODO
 
-The storage prefix can lose a character at the start
-
 Hash and compare everything, but still exclude routes as they're assumed to have changed. Or maybe just do it for files that have file names instead of names. Particularly important because of files like the vite manifest. Maybe also scan for any unmentioned files in the final output and hash and compare those
 
 
@@ -287,8 +285,8 @@ export function versionedWorker(config) {
 
 				const version = buildInfo.version;
 
-				// Contains: routes, precache, lazyCache, storagePrefix, version, versionFolder, versionFileBatchSize and maxVersionFiles
-				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};`;
+				// Contains: routes, precache, lazyCache, storagePrefix, version, versionFolder, versionFileBatchSize, maxVersionFiles and urlPrefix
+				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};const BASE_URL=${JSON.stringify(viteConfig.base)}`;
 
 				await new Promise(resolve => setTimeout(_ => { resolve() }, 500)); // Just give SvelteKit half a second to finish, although it should all be done by the time this runs
 				try {

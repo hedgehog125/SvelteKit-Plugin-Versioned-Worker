@@ -1,6 +1,5 @@
 /*
 Build inputs:
-
  * ROUTES
  * PRECACHE
  * LAZY_CACHE
@@ -9,6 +8,7 @@ Build inputs:
  * VERSION_FOLDER
  * VERSION_FILE_BATCH_SIZE
  * MAX_VERSION_FILES
+ * BASE_URL
 */
 import * as hooks from "./hooks.js";
 
@@ -102,8 +102,6 @@ addEventListener("install", e => {
 						if (exists && (! (updated.has(href) || ROUTES.includes(href)))) {
 							toCopy.push([href, cache]);
 							toDownload.delete(href);
-
-							console.log(`Reused: ${href}`);
 						}
 					}
 				}
@@ -139,9 +137,13 @@ addEventListener("activate", e => {
 addEventListener("fetch", e => {
     e.respondWith(
         (async _ => {
-			if (hooks.handle) hooks.handle();
-
 			const isPage = e.request.mode == "navigate" && e.request.method == "GET";
+			const path = new URL(e.request.url).pathname;
+			if (hooks.handle) {
+				const output = hooks.handle(path.slice(BASE_URL.length), isPage, e, path);
+				if (output != null) return output;
+			}
+
 			if (isPage && registration.waiting) { // Based on https://redfin.engineering/how-to-fix-the-refresh-button-when-using-service-workers-a8e27af6df68
 				const activeClients = await clients.matchAll();
 				if (activeClients.length <= 1) {
@@ -150,7 +152,6 @@ addEventListener("fetch", e => {
 				}
 			}
 
-			const path = new URL(e.request.url).pathname;
 			let cache = await caches.open(currentStorageName);
 			let cached = await cache.match(e.request);
 			if (cached) return cached;
