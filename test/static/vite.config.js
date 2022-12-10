@@ -1,5 +1,5 @@
 import { sveltekit } from "@sveltejs/kit/vite";
-import { versionedWorker, fetchLast, readLast } from "./plugins/index.js";
+import { versionedWorker, fetchLast, readLast } from "sveltekit-plugin-versioned-worker";
 
 const config = {
 	plugins: [

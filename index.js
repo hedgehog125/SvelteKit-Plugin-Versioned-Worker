@@ -3,18 +3,15 @@ TODO
 
 Hash and compare everything, but still exclude routes as they're assumed to have changed. Or maybe just do it for files that have file names instead of names. Particularly important because of files like the vite manifest. Maybe also scan for any unmentioned files in the final output and hash and compare those
 
+Save bandwidth by using importScripts and caching that script. The constants could be defined in the worker and the rest in the file so it can be reused
 
-Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. ALso do the same for .versionedWorker.json
+
+Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
-Call bundle.close. Possibly only needed for for the bundle emitted by this
-Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
-
 How are lazy loaded range requests handled? Particularly when updating, are they copied?
 
 Export things like the version folder name to import into components. Particularly the cache storage name
-Make recursiveList parrelel?
-
 Updating the worker on refresh still doesn't work in firefox. Find a workaround or is it fine?
 */
 
@@ -30,12 +27,15 @@ installPolyfills();
 import { rollup } from "rollup";
 import esbuild from "rollup-plugin-esbuild";
 
+
 import {
 	deepClone,hash, recursiveList,
 	stringifyPlus, newInitialInfo,
 	VersionedWorkerError
-} from "./helper";
+} from "./src/helper.js";
 
+import { fileURLToPath } from "url";
+const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
 const STAGE_SHARED_DATA = "tmp/stageSharedData.json";
@@ -44,26 +44,28 @@ const VERSION_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
 const INFO_FILE = ".versionedWorker.json";
 const DEFAULT_STATIC_FOLDER = "static";
-const SVELTEKIT_PRERENDER_FOLDER = ".svelte-kit/output/prerendered/pages";
+const SVELTEKIT_PRERENDER_FOLDER = ".svelte-kit/output/prerendered/pages"; // TODO: use svelteConfig.kit.outDir instead of always .sveltekit?
 
 const VERSION_FILE_BATCH_SIZE = 10;
 const MAX_VERSION_FILES = 10;
 
 const makeTemp = async _ => {
+	const tmpPath = path.join(pluginDir, "tmp");
+
 	let exists = true;
 	try {
-		await fs.stat("tmp");
+		await fs.stat(tmpPath);
 	}
 	catch {
 		exists = false;
 	}
 	if (exists) {
-		await fs.rm("tmp", {
+		await fs.rm(tmpPath, {
 			recursive: true
 		});
 	}
 
-	await fs.mkdir("tmp");
+	await fs.mkdir(tmpPath);
 };
 
 
@@ -85,12 +87,14 @@ export function versionedWorker(config) {
 
 
 	const init = async (config, methods) => {
+		const downloadPath = path.join(pluginDir, DOWNLOAD_TMP);
+
 		await makeTemp();
-		await fs.mkdir(DOWNLOAD_TMP);
+		await fs.mkdir(downloadPath);
 	
 		await Promise.all([
 			(async _ => {
-				let output = config.lastInfo(DOWNLOAD_TMP, methods, {
+				let output = config.lastInfo(downloadPath, methods, {
 					viteConfig,
 					svelteConfig
 				});
@@ -130,22 +134,22 @@ export function versionedWorker(config) {
 				}
 
 				if (exists) {
-					await fs.copyFile(handlerFilePath, "tmp/hooks.js");
+					await fs.copyFile(handlerFilePath, path.join(pluginDir, "tmp/hooks.js"));
 				}
 				else {
-					await fs.writeFile("tmp/hooks.js", ""); // Use an empty file if there isn't one
+					await fs.writeFile(path.join(pluginDir, "tmp/hooks.js"), ""); // Use an empty file if there isn't one
 				}
 			})()
 		]);
 	};
 	const secondInit = async _ => {
-		secondStageData = JSON.parse(await fs.readFile(STAGE_SHARED_DATA, { encoding: "utf-8" }));
+		secondStageData = JSON.parse(await fs.readFile(path.join(pluginDir, STAGE_SHARED_DATA), { encoding: "utf-8" }));
 
 		secondStageData.staticHashes = new Map(Object.entries(secondStageData.staticHashes)); // New hashes
 		secondStageData.lastBuild.staticHashes = new Map(Object.entries(secondStageData.lastBuild.staticHashes)); // Old hashes
 	};
 	const cleanUp = async _ => {
-		await fs.rm("tmp", {
+		await fs.rm(path.join(pluginDir, "tmp"), {
 			recursive: true
 		});
 	};
@@ -182,7 +186,6 @@ export function versionedWorker(config) {
 			if (svelteConfig.kit.trailingSlash == null) throw new VersionedWorkerError("svelteConfig.kit.trailingSlash must be set to \"always\".");
 			if (svelteConfig.kit.paths?.assets) throw new VersionedWorkerError("svelteConfig.kit.paths.assets can't be used with this plugin.");
 
-
 			if (isSSR) {
 				backgroundTask = secondInit();
 			}
@@ -193,8 +196,7 @@ export function versionedWorker(config) {
 				});
 			}
 
-
-			workerBase = await fs.readFile("plugins/worker.js", { encoding: "utf-8" });
+			workerBase = await fs.readFile(path.join(pluginDir, "src/worker.js"), { encoding: "utf-8" });
 		},
 
 		generateBundle: {
@@ -216,7 +218,7 @@ export function versionedWorker(config) {
 					};
 				}
 
-				await fs.writeFile(STAGE_SHARED_DATA, stringifyPlus({
+				await fs.writeFile(path.join(pluginDir, STAGE_SHARED_DATA), stringifyPlus({
 					lastBuild,
 					bundle: simplifiedBundle,
 					staticHashes
@@ -296,14 +298,14 @@ export function versionedWorker(config) {
 					throw new VersionedWorkerError(`Couldn't find your build folder ${JSON.stringify(config.buildDir)}, make sure the "buildDir" property of this plugin's config matches the output directory in your SvelteKit adapter static config.`);
 				}
 
-				await fs.writeFile("tmp/entry.js", codeForConstants + workerBase);
+				await fs.writeFile(path.join(pluginDir, "tmp/entry.js"), codeForConstants + workerBase);
 
 				const workerBundle = await rollup({
-					input: "tmp/entry.js",
+					input: path.join(pluginDir, "tmp/entry.js"),
 					plugins: [esbuild({ minify: true })],
 
 					onwarn(warning, warn) {
-						if (warning.code == "MISSING_EXPORT" && warning.exporter == "tmp/hooks.js") return; // There's a null check so missing exports are fine
+						if (warning.code == "MISSING_EXPORT" && warning.exporter == path.join(pluginDir, "tmp/hooks.js")) return; // There's a null check so missing exports are fine
 						warn(warning);
 					}
 				});
@@ -341,28 +343,6 @@ export function versionedWorker(config) {
 					),
 					cleanUp()
 				]);
-
-				/*
-				await viteBuild({
-					base: viteConfig.base,
-					build: {
-						lib: {
-							entry: "tmp/entry.js",
-							name: "app",
-							formats: ["es"],
-							fileName: WORKER_FILE.slice(0, -3) // Remove the .js
-						},
-						outDir: path.join(viteConfig.root, config.buildDir),
-						emptyOutDir: false
-					},
-					configFile: false,
-					resolve: {
-						alias: {
-							"versioned-worker/hooks": path.join(process.cwd(), "tmp/hooks.js")
-						}
-					}
-				});
-				*/
 			}
 		}
 	};

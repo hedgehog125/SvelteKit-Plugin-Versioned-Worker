@@ -6,19 +6,14 @@
 		"testBuild": "cross-env DISABLE_BASE_URL=true vite build",
 		"preview": "http-server build"
 	},
-	"dependencies": {
-		"degit": "^2.8.4",
-		"mime-types": "^2.1.35"
-	},
 	"devDependencies": {
-		"@sveltejs/adapter-static": "^1.0.0-next.48",
-		"@sveltejs/kit": "^1.0.0-next.535",
+		"@sveltejs/adapter-static": "^1.0.0-next.49",
+		"@sveltejs/kit": "^1.0.0-next.582",
 		"cross-env": "^7.0.3",
 		"html-minifier": "^4.0.0",
 		"http-server": "^14.1.1",
-		"rollup-plugin-esbuild": "^5.0.0",
-		"svelte": "^3.44.0",
-		"vite": "^3.1.0"
+		"svelte": "^3.54.0",
+		"vite": "^4.0.0"
 	},
 	"type": "module"
 }
