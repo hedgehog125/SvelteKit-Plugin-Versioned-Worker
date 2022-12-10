@@ -9,7 +9,7 @@ Hash and compare everything, but still exclude routes as they're assumed to have
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. ALso do the same for .versionedWorker.json
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
-Call bundle.close
+Call bundle.close. Possibly only needed for for the bundle emitted by this
 Handle non static assers that don't have hashed filenames. e.g SvelteKit service workers
 
 How are lazy loaded range requests handled? Particularly when updating, are they copied?
@@ -28,6 +28,9 @@ import degit from "degit";
 import mime from "mime-types";
 import { installPolyfills } from "@sveltejs/kit/node/polyfills";
 installPolyfills();
+
+import { rollup } from "rollup";
+import esbuild from "rollup-plugin-esbuild";
 
 import {
 	deepClone,hash, recursiveList,
@@ -65,9 +68,11 @@ const makeTemp = async _ => {
 	await fs.mkdir("tmp");
 };
 
+
 export function versionedWorker(config) {
 	if (config.lazyCache == null) config.lazyCache = _ => false; 
 	if (config.buildDir == null) config.buildDir = "build";
+	if (config.handlerFile == null) config.handlerFile = "src/hooks.worker.js";
 
 	let viteConfig;
 	let svelteConfig;
@@ -114,6 +119,24 @@ export function versionedWorker(config) {
 					const contents = await fs.readFile(path.join(staticFolder, fileInfo.path));
 					staticHashes.set(fileInfo.path, hash(contents));
 				}
+			})(),
+			(async _ => {
+				const handlerFilePath = path.join(viteConfig.root, config.handlerFile);
+				
+				let exists = true;
+				try {
+					await fs.stat(handlerFilePath);
+				}
+				catch {
+					exists = false;
+				}
+
+				if (exists) {
+					await fs.copyFile(handlerFilePath, "tmp/hooks.js");
+				}
+				else {
+					await fs.writeFile("tmp/hooks.js", ""); // Use an empty file if there isn't one
+				}
 			})()
 		]);
 	};
@@ -138,12 +161,11 @@ export function versionedWorker(config) {
 
 			storagePrefix = config.storagePrefix;
 			if (storagePrefix == null) {
-				storagePrefix = viteConfig.base.slice(2); // It always starts with a "./"
+				storagePrefix = viteConfig.base.slice(viteConfig.base.indexOf("/") + 1); // Remove the starting / or ./
 				if (storagePrefix == "") {
 					storagePrefix = "VersionedWorkerCache";
 				}
 				else {
-					if (storagePrefix.startsWith("/")) storagePrefix = storagePrefix.slice(1);
 					if (storagePrefix.endsWith("/")) storagePrefix = storagePrefix.slice(0, -1);
 				}
 
@@ -160,6 +182,7 @@ export function versionedWorker(config) {
 			if (svelteConfig.kit.files.assets == null) svelteConfig.kit.files.assets = DEFAULT_STATIC_FOLDER;
 
 			if (svelteConfig.kit.trailingSlash == null) throw new VersionedWorkerError("svelteConfig.kit.trailingSlash must be set to \"always\".");
+			if (svelteConfig.kit.paths?.assets) throw new VersionedWorkerError("svelteConfig.kit.paths.assets can't be used with this plugin.");
 
 
 			if (isSSR) {
@@ -173,9 +196,7 @@ export function versionedWorker(config) {
 			}
 
 
-			workerBase = await fs.readFile("plugins/worker.js", {
-				encoding: "utf-8"
-			});
+			workerBase = await fs.readFile("plugins/worker.js", { encoding: "utf-8" });
 		},
 
 		generateBundle: {
@@ -266,7 +287,7 @@ export function versionedWorker(config) {
 
 				const version = buildInfo.version;
 
-				// Contains: routes, precache, lazyCache, storagePrefix and version
+				// Contains: routes, precache, lazyCache, storagePrefix, version, versionFolder, versionFileBatchSize and maxVersionFiles
 				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};`;
 
 				await new Promise(resolve => setTimeout(_ => { resolve() }, 500)); // Just give SvelteKit half a second to finish, although it should all be done by the time this runs
@@ -277,11 +298,25 @@ export function versionedWorker(config) {
 					throw new VersionedWorkerError(`Couldn't find your build folder ${JSON.stringify(config.buildDir)}, make sure the "buildDir" property of this plugin's config matches the output directory in your SvelteKit adapter static config.`);
 				}
 
+				await fs.writeFile("tmp/entry.js", codeForConstants + workerBase);
+
+				const workerBundle = await rollup({
+					input: "tmp/entry.js",
+					plugins: [esbuild({ minify: true })],
+
+					onwarn(warning, warn) {
+						if (warning.code == "MISSING_EXPORT" && warning.exporter == "tmp/hooks.js") return; // There's a null check so missing exports are fine
+						warn(warning);
+					}
+				});
+
+				await workerBundle.write({
+					file: path.join(viteConfig.root, config.buildDir, WORKER_FILE),
+					format: "iife"
+				});
+				workerBundle.close();
+
 				await Promise.all([
-					fs.writeFile(
-						path.join(viteConfig.root, config.buildDir, WORKER_FILE),
-						codeForConstants + workerBase
-					),
 					(async _ => { // Version files
 						const versionPath = path.join(viteConfig.root, config.buildDir, VERSION_FOLDER);
 						await fs.mkdir(versionPath);
@@ -308,10 +343,33 @@ export function versionedWorker(config) {
 					),
 					cleanUp()
 				]);
+
+				/*
+				await viteBuild({
+					base: viteConfig.base,
+					build: {
+						lib: {
+							entry: "tmp/entry.js",
+							name: "app",
+							formats: ["es"],
+							fileName: WORKER_FILE.slice(0, -3) // Remove the .js
+						},
+						outDir: path.join(viteConfig.root, config.buildDir),
+						emptyOutDir: false
+					},
+					configFile: false,
+					resolve: {
+						alias: {
+							"versioned-worker/hooks": path.join(process.cwd(), "tmp/hooks.js")
+						}
+					}
+				});
+				*/
 			}
 		}
 	};
-}
+};
+
 export function degitLast(source) {
 	return async (tmpDir, methods) => {
 		const emitter = degit(source);

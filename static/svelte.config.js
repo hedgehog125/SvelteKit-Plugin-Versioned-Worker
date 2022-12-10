@@ -28,11 +28,7 @@ const config = {
 			$vid: "src/lib/vids"
 		},
 
-		adapter: adapter({
-			pages: buildDir,
-			assets: buildDir,
-			fallback: null
-		}),
+		adapter: adapter(),
 		trailingSlash: "always"
 	}
 };

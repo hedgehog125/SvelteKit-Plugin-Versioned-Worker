@@ -10,6 +10,8 @@ Build inputs:
  * VERSION_FILE_BATCH_SIZE
  * MAX_VERSION_FILES
 */
+import * as hooks from "./hooks.js";
+
 const currentStorageName = STORAGE_PREFIX + VERSION;
 const COMPLETE_CACHE_LIST = Object.create(null, {});
 const addToCacheList = hrefs => {
@@ -137,6 +139,8 @@ addEventListener("activate", e => {
 addEventListener("fetch", e => {
     e.respondWith(
         (async _ => {
+			if (hooks.handle) hooks.handle();
+
 			const isPage = e.request.mode == "navigate" && e.request.method == "GET";
 			if (isPage && registration.waiting) { // Based on https://redfin.engineering/how-to-fix-the-refresh-button-when-using-service-workers-a8e27af6df68
 				const activeClients = await clients.matchAll();
