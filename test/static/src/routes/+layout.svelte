@@ -1,5 +1,5 @@
 <script>
-	import RegisterWorker from "$util/RegisterWorker.svelte";
+	import RegisterWorker from "sveltekit-plugin-versioned-worker/register-worker";
 </script>
 
 <style>

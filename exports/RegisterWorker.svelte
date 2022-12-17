@@ -1,8 +1,10 @@
 <script>
 	import linkPage from "$util/LinkPage.js";
 	import { onMount } from "svelte";
+	import { dev } from "$app/environment";
 
 	onMount(_ => {
+		if (dev) return;
 		if (! "serviceWorker" in navigator) return;
 
 		navigator.serviceWorker.register(linkPage("sw.js"));
