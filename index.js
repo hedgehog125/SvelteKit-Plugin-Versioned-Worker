@@ -1,20 +1,13 @@
 /*
 TODO
 
-Don't hash files that are in the bundle, like scripts. And reuse the hashes if they have filenames rather than names
-
-Add file exclusion. Maybe exclude some files by default?
-
-
-Save bandwidth by using importScripts and caching that script. The constants could be defined in the worker and the rest in the file so it can be reused
-
+Export the constants and import them in rather than inlining, that way they can be used by the hooks file
 
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
 How are lazy loaded range requests handled? Particularly when updating, are they copied?
 
-Export things like the version folder name to import into components. Particularly the cache storage name
 Updating the worker on refresh still doesn't work in firefox. Find a workaround or is it fine?
 */
 
@@ -71,7 +64,6 @@ const makeTemp = async _ => {
 
 
 export function versionedWorker(config) {
-	if (config.exclude == null) config.exclude = _ => false;
 	if (config.lazyCache == null) config.lazyCache = _ => false;
 	if (config.buildDir == null) config.buildDir = "build";
 	if (config.handlerFile == null) config.handlerFile = "src/hooks.worker.js";
@@ -217,14 +209,20 @@ export function versionedWorker(config) {
 
 			callbackOutputs.push([
 				filePath,
-				config.lazyCache(mime.lookup(filePath), filePath)
+				Promise.all([
+					config.lazyCache(filePath, mime.lookup(filePath)),
+					config.exclude(filePath, mime.lookup(filePath))
+				])
 			]);
 		}
 
 		let precache = [];
 		let lazyCache = [];
 		for (const [filePath, output] of callbackOutputs) {
-			if (await output) lazyCache.push(filePath);
+			const [lazy, exclude] = await output;
+			if (exclude) continue;
+			
+			if (lazy) lazyCache.push(filePath);
 			else precache.push(baseURL + filePath);
 		}
 
@@ -234,10 +232,11 @@ export function versionedWorker(config) {
 	return {
 		name: "versioned-worker",
 		apply: "build",
-		configResolved(config) {
+		async configResolved(_viteConfig) {
 			if (isSSR) return;
 
-			viteConfig = config;
+			viteConfig = _viteConfig;
+			svelteConfig = await loadSvelteConfig(viteConfig.root);
 			isSSR = viteConfig.build.ssr;
 			baseURL = viteConfig.base;
 			if (baseURL == "./") baseURL = "/";
@@ -254,12 +253,14 @@ export function versionedWorker(config) {
 
 			}
 			storagePrefix += "-";
+
+			if (config.exclude == null) config.exclude = fileList([
+				svelteConfig.kit.appDir + "/version.json",
+				viteConfig.build.manifest
+			]);			
 		},
 		async buildStart() {
 			if (isSSR) return;
-
-			svelteConfig = await loadSvelteConfig(viteConfig.root);
-
 			if (svelteConfig.kit.paths.assets) throw new VersionedWorkerError("svelteConfig.kit.paths.assets can't be used with this plugin.");
 			if (svelteConfig.kit.adapter.name != "@sveltejs/adapter-static") {
 				throw new VersionedWorkerError(`Your need to use the static SvelteKit adapter to use this plugin. You're using ${svelteConfig.kit.adapter.name}.`);
@@ -429,6 +430,6 @@ export function readLast(filePath) {
 	};
 };
 
-export function fileList(files) { // TODO
-	return;
+export function fileList(files = []) {
+	return filePath => files.includes(filePath);
 };
