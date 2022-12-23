@@ -80,7 +80,7 @@ const getUpdated = async installedVersions => {
 addEventListener("install", e => {
     e.waitUntil(
 		(async _ => {
-			const installedVersions = await getInstalled(); // TODO: installedVersiones, updated and doCleanInstall should be returned
+			const installedVersions = await getInstalled();
 			const [updated, doCleanInstall] = await getUpdated(installedVersions);
 
 			const toDownload = new Set([

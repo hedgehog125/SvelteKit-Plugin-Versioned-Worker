@@ -42,7 +42,6 @@ import { fileURLToPath } from "url";
 const pluginDir = path.dirname(fileURLToPath(import.meta.url));
 
 const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
-const STAGE_SHARED_DATA = "tmp/stageSharedData.json";
 const WORKER_FILE = "sw.js";
 const VERSION_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
@@ -81,11 +80,12 @@ export function versionedWorker(config) {
 	let svelteConfig;
 
 	let isSSR;
+	let baseURL;
 	let backgroundTask;
+	let bundle;
 	let lastBuild;
 	let workerBase;
 	let storagePrefix;
-	let secondStageData;
 
 
 	const init = async (config, methods) => {
@@ -109,7 +109,9 @@ export function versionedWorker(config) {
 						throw new VersionedWorkerError(`Couldn't parse the info file from the last build. Contents:\n${output}`);
 					}
 				}
+
 				lastBuild = output;
+				lastBuild.hashes = new Map(Object.entries(lastBuild.hashes));
 			})(),
 			(async _ => {
 				const handlerFilePath = path.join(viteConfig.root, config.handlerFile);
@@ -128,16 +130,6 @@ export function versionedWorker(config) {
 				else {
 					await fs.writeFile(path.join(pluginDir, "tmp/hooks.js"), ""); // Use an empty file if there isn't one
 				}
-			})()
-		]);
-	};
-	const secondInit = async _ => {
-		await Promise.all([
-			(async _ => {
-				secondStageData = JSON.parse(await fs.readFile(path.join(pluginDir, STAGE_SHARED_DATA), { encoding: "utf-8" }));
-
-				secondStageData.bundle = new Map(Object.entries(secondStageData.bundle));
-				secondStageData.lastBuild.hashes = new Map(Object.entries(secondStageData.lastBuild.hashes)); // Old hashes
 			})(),
 			(async _ => {
 				workerBase = await fs.readFile(path.join(pluginDir, "src/worker.js"), { encoding: "utf-8" });
@@ -150,14 +142,14 @@ export function versionedWorker(config) {
 		});
 	};
 
-	const computeHashes = async (buildFiles, bundle) => {
+	const computeHashes = async buildFiles => {
 		let reads = [];
 		for (const fileInfo of buildFiles) {
 			if (fileInfo.isFolder) continue;
 			if (path.extname(fileInfo.path) == "html") continue; // Don't bother hashing routes since they always change
 
 			const filePath = normalizePath(fileInfo.path);
-			const bundleFileInfo = bundle.get(filePath);
+			const bundleFileInfo = bundle[filePath];
 			if (bundleFileInfo?.name) continue; // It's already got a hash in its filename
 
 			reads.push([
@@ -201,7 +193,7 @@ export function versionedWorker(config) {
 		buildInfo.hashes = hashes;
 	};
 	const getRoutes = buildFiles => {
-		const routeFiles = buildFiles.filter(fileInfo => (! fileInfo.isFolder) && path.extname(fileInfo.path) == "html"); // Also exclude the folders
+		const routeFiles = buildFiles.filter(fileInfo => (! fileInfo.isFolder) && path.extname(fileInfo.path) == ".html"); // Also exclude the folders
 
 		let routes = [];
 		for (const fileInfo of routeFiles) { // These will all be index.html files
@@ -210,19 +202,20 @@ export function versionedWorker(config) {
 				throw new VersionedWorkerError(`The file ${filePath} is an HTML in your build folder isn't called "index.html". Check your routes/+layout.js file and make sure "trailingSlash" is set to "always", as that's the only supported value in this plugin at the moment.`);
 			}
 
-			routes.push(viteConfig.base + filePath.slice(0, -10)); // 10 is the length of "index.html", which they all end with
+			routes.push(baseURL + filePath.slice(0, -10)); // 10 is the length of "index.html", which they all end with
 		}
-		return routes;
+		return [routes, routeFiles.map(fileInfo => fileInfo.path)];
 	};
-	const generateCacheList = async buildFiles => {
-		let outputs = [];
+	const generateCacheList = async (buildFiles, routeFiles) => {
+		let callbackOutputs = [];
 		for (const fileInfo of buildFiles) {
 			if (fileInfo.isFolder) continue;
+			if (routeFiles.includes(fileInfo.path)) continue;
 
-			const filePath = normalizePath(fileInfo.path);
+			const filePath = normalizePath(fileInfo.path).slice(0); // Remove the unnecessary starting dot
 			if (filePath == WORKER_FILE) continue;
 
-			outputs.push([
+			callbackOutputs.push([
 				filePath,
 				config.lazyCache(mime.lookup(filePath), filePath)
 			]);
@@ -230,9 +223,9 @@ export function versionedWorker(config) {
 
 		let precache = [];
 		let lazyCache = [];
-		for (const [filePath, output] of outputs) {
+		for (const [filePath, output] of callbackOutputs) {
 			if (await output) lazyCache.push(filePath);
-			else precache.push(viteConfig.base + filePath);
+			else precache.push(baseURL + filePath);
 		}
 
 		return [precache, lazyCache];
@@ -242,12 +235,16 @@ export function versionedWorker(config) {
 		name: "versioned-worker",
 		apply: "build",
 		configResolved(config) {
+			if (isSSR) return;
+
 			viteConfig = config;
 			isSSR = viteConfig.build.ssr;
+			baseURL = viteConfig.base;
+			if (baseURL == "./") baseURL = "/";
 
 			storagePrefix = config.storagePrefix;
 			if (storagePrefix == null) {
-				storagePrefix = viteConfig.base.slice(viteConfig.base.indexOf("/") + 1); // Remove the starting / or ./
+				storagePrefix = baseURL.slice(1); // Remove the starting /
 				if (storagePrefix == "") {
 					storagePrefix = "VersionedWorkerCache";
 				}
@@ -259,6 +256,8 @@ export function versionedWorker(config) {
 			storagePrefix += "-";
 		},
 		async buildStart() {
+			if (isSSR) return;
+
 			svelteConfig = await loadSvelteConfig(viteConfig.root);
 
 			if (svelteConfig.kit.paths.assets) throw new VersionedWorkerError("svelteConfig.kit.paths.assets can't be used with this plugin.");
@@ -266,41 +265,16 @@ export function versionedWorker(config) {
 				throw new VersionedWorkerError(`Your need to use the static SvelteKit adapter to use this plugin. You're using ${svelteConfig.kit.adapter.name}.`);
 			}
 
-			if (isSSR) {
-				backgroundTask = secondInit();
-			}
-			else {
-				backgroundTask = init(config, {
-					warn: this.warn,
-					info: this.info
-				});
-			}
+			backgroundTask = init(config, {
+				warn: this.warn,
+				info: this.info
+			});
 		},
 
-		generateBundle: {
-			order: "post",
-			sequential: true,
-			async handler(_, bundle) {
-				if (isSSR) return;
+		generateBundle(_, _bundle) {
+			if (isSSR) return;
 
-				await backgroundTask;
-
-				// Remove the deprecated and unnecessary properties to prevent warnings and speed things up by reducing the file size
-				const simplifiedBundle = Object.create(null, {});
-				for (const [filePath, item] of Object.entries(bundle)) {
-					const { type, name, fileName } = item;
-					simplifiedBundle[filePath] = {
-						type,
-						name,
-						fileName
-					};
-				}
-
-				await fs.writeFile(path.join(pluginDir, STAGE_SHARED_DATA), stringifyPlus({
-					lastBuild,
-					bundle: simplifiedBundle
-				}));
-			}
+			bundle = _bundle;
 		},
 		closeBundle: {
 			order: "post",
@@ -308,22 +282,22 @@ export function versionedWorker(config) {
 			sequential: true,
 			async handler() {
 				if (isSSR) return; // I think the build doesn't actually get written in this hook, instead it gets written when ssr is false, but that happens later
-				console.log("Versioned-Worker: hashing build files...");
+				console.log("Versioned-Worker: Hashing build files...");
 				await backgroundTask;
 
-				const { lastBuild: buildInfo, bundle } = secondStageData;
+				let buildInfo = lastBuild;
 				const buildFiles = await recursiveList(path.join(viteConfig.root, config.buildDir));
 
-				const hashes = await computeHashes(buildFiles, bundle);
+				const hashes = await computeHashes(buildFiles);
 				updateBuildInfo(buildInfo, hashes);
-				const routes = getRoutes(buildFiles);
-				const [precache, lazyCache] = await generateCacheList(buildFiles);
+				const [routes, routeFiles] = getRoutes(buildFiles);
+				const [precache, lazyCache] = await generateCacheList(buildFiles, routeFiles);
 				const version = buildInfo.version;
 
-				console.log("Versioned-Worker: building worker...");
+				console.log("Versioned-Worker: Building worker...");
 
-				// Contains: routes, precache, lazyCache, storagePrefix, version, versionFolder, versionFileBatchSize, maxVersionFiles and urlPrefix
-				const codeForConstants = `const ROUTES=${JSON.stringify(routes)};const PRECACHE=${JSON.stringify(precache)};const LAZY_CACHE=${JSON.stringify(lazyCache)};const STORAGE_PREFIX=${JSON.stringify(storagePrefix)};const VERSION=${version};const VERSION_FOLDER=${JSON.stringify(VERSION_FOLDER)};const VERSION_FILE_BATCH_SIZE=${VERSION_FILE_BATCH_SIZE};const MAX_VERSION_FILES=${MAX_VERSION_FILES};const BASE_URL=${JSON.stringify(viteConfig.base)}`;
+				// Contains: routes, precache, lazyCache, storagePrefix, version, versionFolder, versionFileBatchSize, maxVersionFiles and baseURL
+				const codeForConstants = `const [ROUTES, PRECACHE, LAZY_CACHE, STORAGE_PREFIX, VERSION, VERSION_FOLDER, VERSION_FILE_BATCH_SIZE, MAX_VERSION_FILES, BASE_URL] = ${JSON.stringify([routes, precache, lazyCache, storagePrefix, version, VERSION_FOLDER, VERSION_FILE_BATCH_SIZE, MAX_VERSION_FILES, baseURL])};`;
 
 				try {
 					await fs.stat(path.join(viteConfig.root, config.buildDir)); // I think node sometimes doesn't realise the build folder exists without this
@@ -353,7 +327,7 @@ export function versionedWorker(config) {
 				await Promise.all([
 					(async _ => { // Version files
 						const versionPath = path.join(viteConfig.root, config.buildDir, VERSION_FOLDER);
-						await fs.mkdir("F:\\huh");
+						await fs.mkdir(versionPath);
 
 						let writes = [];
 						for (let fileID in buildInfo.versions) {
@@ -379,8 +353,7 @@ export function versionedWorker(config) {
 					cleanUp()
 				]);
 
-				console.log("Versioned-Worker: Done")
-				debugger;
+				console.log("Versioned-Worker: Done");
 			}
 		}
 	};
@@ -456,6 +429,6 @@ export function readLast(filePath) {
 	};
 };
 
-export function fileList(files) {
-	return ;
+export function fileList(files) { // TODO
+	return;
 };
