@@ -35,50 +35,53 @@ const parseUpdatedList = contents => {
 		updated: contents.slice(splitPoint + 1).split("\n")
 	};
 };
+const getInstalled = async _ => {
+	let installedVersions = [];
+
+	const cacheNames = await caches.keys();
+	for (const cacheName of cacheNames) {
+		if (! cacheName.startsWith(STORAGE_PREFIX)) continue;
+		if (cacheName == currentStorageName) continue;
+
+		installedVersions.push(
+			parseInt(cacheName.slice(STORAGE_PREFIX.length))
+		);
+	}
+	
+	installedVersions = installedVersions.sort((n1, n2) => n2 - n1); // Newest (highest) first
+	return installedVersions;
+};
+const getUpdated = async installedVersions => {
+	if (installedVersions.length == 0) return [null, true]; // Clean install
+	const newestInstalled = Math.max(...installedVersions);
+	
+	// Fetch all the version files between the versions
+	let versionFiles = [];
+	for (let version = newestInstalled; version <= VERSION; version += VERSION_FILE_BATCH_SIZE) {
+		versionFiles.push(fetch(`${VERSION_FOLDER}/${Math.floor(version / VERSION_FILE_BATCH_SIZE)}.txt`));
+
+		if (versionFiles.length > MAX_VERSION_FILES) return [null, true]; // Clean install
+	}
+
+	versionFiles = await Promise.all(versionFiles);
+	versionFiles = await Promise.all(versionFiles.map(res => res.text()));
+	versionFiles = versionFiles.map(parseUpdatedList);
+
+	let updated = new Set();
+	for (const versionFile of versionFiles) {
+		for (const href of versionFile.updated) {
+			updated.add(href);
+		}
+	}
+	return [updated, false];
+};
 
 
 addEventListener("install", e => {
     e.waitUntil(
 		(async _ => {
-			let installedVersions = [];
-			let updated = new Set();
-			let doCleanInstall = false;
-			{
-				const cacheNames = await caches.keys();
-				for (const cacheName of cacheNames) {
-					if (! cacheName.startsWith(STORAGE_PREFIX)) continue;
-					if (cacheName == currentStorageName) continue;
-	
-					installedVersions.push(
-						parseInt(cacheName.slice(STORAGE_PREFIX.length))
-					);
-				}
-				installedVersions = installedVersions.sort((n1, n2) => n2 - n1); // Newest (highest) first
-				const newestInstalled = Math.max(...installedVersions);
-	
-				// Fetch all the version files between the versions
-				let versionFiles = [];
-				for (let version = newestInstalled; version <= VERSION; version += VERSION_FILE_BATCH_SIZE) {
-					versionFiles.push(fetch(`${VERSION_FOLDER}/${Math.floor(version / VERSION_FILE_BATCH_SIZE)}.txt`));
-
-					if (versionFiles.length > MAX_VERSION_FILES) {
-						doCleanInstall = true;
-						break;
-					}
-				}
-	
-				if (! doCleanInstall) {
-					versionFiles = await Promise.all(versionFiles);
-					versionFiles = await Promise.all(versionFiles.map(res => res.text()));
-					versionFiles = versionFiles.map(parseUpdatedList);
-
-					for (const versionFile of versionFiles) {
-						for (const href of versionFile.updated) {
-							updated.add(href);
-						}
-					}
-				}
-			}
+			const installedVersions = await getInstalled(); // TODO: installedVersiones, updated and doCleanInstall should be returned
+			const [updated, doCleanInstall] = await getUpdated(installedVersions);
 
 			const toDownload = new Set([
 				...ROUTES,

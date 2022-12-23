@@ -72,6 +72,6 @@ export function newInitialInfo() {
 		formatVersion: 1,
 		version: -1,
 		versions: [],
-		staticHashes: {}
+		hashes: {}
 	};
 };
