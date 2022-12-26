@@ -1,8 +1,6 @@
 /*
 TODO
 
-Add the base URL to more things in the manifest, like icons
-
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json. Should the build logic be updated to handle the different indexes or should it be populated with nulls on load?
 
 Export the constants and import them in rather than inlining, that way they can be used by the hooks file. Use virtual modules for this and the importing of the hooks
@@ -197,14 +195,42 @@ export function versionedWorker(config) {
 			}
 		}
 
+		const addBase = href => {
+			if (href.startsWith("/") || href.includes("://")) return href;
+			
+			return baseURL + href;
+		};
 		parsed.scope = baseURL;
 		if (parsed.start_url == null) parsed.start_url = baseURL;
 		else {
-			let href = parsed.start_url;
-			if (href.endsWith("/")) href = href.slice(0, -1);
-
-			parsed.start_url = addEndingSlash(baseURL + href);
+			parsed.start_url = addBase(parsed.start_url);
 			if (! parsed.start_url.endsWith("/")) parsed.start_url += "/";
+		}
+
+		if (parsed.icons) {
+			for (const icon of parsed.icons) {
+				icon.src = addBase(icon.src);
+			}
+		}
+		if (parsed.protocol_handlers) {
+			for (const handler of parsed.protocol_handlers) {
+				handler.url = addBase(handler.url);
+			}
+		}
+		if (parsed.screenshots) {
+			for (const screenshot of parsed.screenshots) {
+				screenshot.src = addBase(screenshot.src);
+			}
+		}
+		if (parsed.share_target) {
+			for (const shareTarget of parsed.share_target) {
+				shareTarget.action = addBase(shareTarget.action);
+			}
+		}
+		if (parsed.shortcuts) {
+			for (const shortcut of parsed.shortcuts) {
+				shortcut.url = addBase(shortcut.url);
+			}
 		}
 		return JSON.stringify(parsed);
 	};
