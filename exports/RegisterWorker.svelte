@@ -1,7 +1,13 @@
 <script>
-	import linkPage from "$util/LinkPage.js";
 	import { onMount } from "svelte";
 	import { dev } from "$app/environment";
+	import { base } from "$app/paths";
+
+	const linkPage = href => {
+    	if (href[href.length - 1] == "/") href = href.slice(0, href.length - 1);
+
+	    return base + "/" + href;
+	};
 
 	onMount(_ => {
 		if (dev) return;

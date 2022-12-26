@@ -272,10 +272,13 @@ export function versionedWorker(config) {
 			});
 		},
 
-		generateBundle(_, _bundle) {
-			if (isSSR) return;
-
-			bundle = _bundle;
+		generateBundle: {
+			sequential: true,
+			handler(_, _bundle) {
+				if (isSSR) return;
+	
+				bundle = _bundle;
+			}
 		},
 		closeBundle: {
 			order: "post",
@@ -283,6 +286,11 @@ export function versionedWorker(config) {
 			sequential: true,
 			async handler() {
 				if (isSSR) return; // I think the build doesn't actually get written in this hook, instead it gets written when ssr is false, but that happens later
+				if (bundle == null) {
+					this.warn("Not building because your app seems to have run into a build error.");
+					return;
+				}
+				
 				console.log("Versioned-Worker: Hashing build files...");
 				await backgroundTask;
 

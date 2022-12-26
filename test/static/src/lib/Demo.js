@@ -16,7 +16,7 @@ const assetsToPreload = {
 </svelte:head>`,
     link:
 `<script>
-	import linkPage from "$util/LinkPage.js";
+	import { linkPage } from "$util/Tools.js";
 </script>
 
 <main>

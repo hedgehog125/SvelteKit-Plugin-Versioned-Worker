@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from "svelte";
 	import MobileNewline from "$util/MobileNewline.svelte";
-	import linkPage from "$util/LinkPage.js";
+	import { linkPage } from "$util/Tools.js";
 	import bagelImg from "$img/bagel.png";
 
 	import { textboxes } from "$lib/Demo.js";
@@ -13,7 +13,6 @@
 </script>
 
 <main>
-	<img src={bagelImg} alt="A pixel art bagel"> <br>
 	<p>
 		This is a simple demo of the small tools that are included in this template. As well as some reminders for problems I've already solved.
 	</p> <br>
@@ -44,9 +43,17 @@
 
 	<br>
 	<h1>
+		Versioned Worker Plugin
+	</h1>
+	<p>
+		This template is configured to use my own plugin: Versioned Worker, to make it easy to add offline support. If you want to use it, you'll need to tell it where your builds will go, so it can work out what's changed.
+	</p>
+
+	<br>
+	<h1>
 		Defaults
 	</h1>
-	<h2>Defined in app.html</h2>
+	<h2>Defined in routes/+layout.svelte</h2>
 
 	<p>
 		This button has a pointer cursor
@@ -54,7 +61,7 @@
 	<button>Tada</button> <br>
 
 	<p>
-		All text also uses sans-serif
+		All text also uses Sans-Serif
 	</p>
 	
 	<br>
@@ -72,15 +79,38 @@
 			<a href={linkPage("linkDemo")}>Look, this works! :0</a>
 		</li>
 		<li>
+			<p> Images can be included by importing their href like a JavaScript file. This is just a Vite thing. </p> <br>
+			<img src={bagelImg} alt="A pixel art bagel">
+		</li>
+		<li>
 			<p> Tools.js currently only has 2 functions, but I'll include new ones in the future as I need them: </p>
 			<ul>
 				<li>
-					format.time takes a number of seconds and converts it into a HH:MM:SS format. The second argument lets you limit the number of digit pairs (e.g exclude hours by setting it to 2).
+					linkPage, which is explained <a href={linkPage("linkDemo")}>here</a>.
 				</li>
 				<li>
-					format.shorten takes a string as its first argument and the target length as the second. If it's over, it'll be trimmed to the max length and have the last 3 characters replaced with "...".
+					formatTime takes a number of seconds and converts it into a HH:MM:SS format. The second argument lets you limit the number of digit pairs (e.g exclude hours by setting it to 2).
+				</li>
+				<li>
+					<p> I removed format.shorten since it's better to do it with the CSS properties overflow: hidden, text-overflow: ellipsis and white-space: nowrap. It looks like this: </p>
+					<p class="shorten">
+						This is a bit long, and since I've limited the size of the element, some of this will get cut off. 
+					</p>
 				</li>
 			</ul>
+			
 		</li>
 	</ol>
 </main>
+
+<style>
+	.shorten {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		border: 1px solid black;
+
+		font-size: 15px;
+		max-width: 73ch;
+	}
+</style>
