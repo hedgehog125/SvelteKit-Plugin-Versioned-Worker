@@ -1,9 +1,11 @@
 /*
 TODO
 
-Export the constants and import them in rather than inlining, that way they can be used by the hooks file
-
+Store the changed files per version in the files so less redownloading. Just make the new format use the old version number
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json
+
+Export the constants and import them in rather than inlining, that way they can be used by the hooks file. Use virtual modules for this and the importing of the hooks
+
 Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
 How are lazy loaded range requests handled? Particularly when updating, are they copied?
@@ -14,6 +16,7 @@ Updating the worker on refresh still doesn't work in firefox. Find a workaround 
 import path from "path";
 import { normalizePath } from "vite";
 import fs from "fs/promises";
+import { pathToFileURL } from "url";
 
 import degit from "degit";
 import mime from "mime-types";
@@ -67,6 +70,8 @@ export function versionedWorker(config) {
 	if (config.lazyCache == null) config.lazyCache = _ => false;
 	if (config.buildDir == null) config.buildDir = "build";
 	if (config.handlerFile == null) config.handlerFile = "src/hooks.worker.js";
+	if (config.manifestFile == null) config.manifestFile = "src/manifest.webmanifest";
+	if (config.manifestOutName == null) config.manifestOutName = "manifest.webmanifest";
 
 	let viteConfig;
 	let svelteConfig;
@@ -78,6 +83,7 @@ export function versionedWorker(config) {
 	let lastBuild;
 	let workerBase;
 	let storagePrefix;
+	let handlerFileExists;
 
 
 	const init = async (config, methods) => {
@@ -106,18 +112,8 @@ export function versionedWorker(config) {
 				lastBuild.hashes = new Map(Object.entries(lastBuild.hashes));
 			})(),
 			(async _ => {
-				const handlerFilePath = path.join(viteConfig.root, config.handlerFile);
-				
-				let exists = true;
-				try {
-					await fs.stat(handlerFilePath);
-				}
-				catch {
-					exists = false;
-				}
-
-				if (exists) {
-					await fs.copyFile(handlerFilePath, path.join(pluginDir, "tmp/hooks.js"));
+				if (handlerFileExists) {
+					await fs.copyFile(path.join(viteConfig.root, config.handlerFile), path.join(pluginDir, "tmp/hooks.js"));
 				}
 				else {
 					await fs.writeFile(path.join(pluginDir, "tmp/hooks.js"), ""); // Use an empty file if there isn't one
@@ -127,6 +123,61 @@ export function versionedWorker(config) {
 				workerBase = await fs.readFile(path.join(pluginDir, "src/worker.js"), { encoding: "utf-8" });
 			})()
 		]);
+	};
+	const checkIfHandlerFileExists = async _ => {
+		try {
+			await fs.stat(path.join(viteConfig.root, config.handlerFile));
+		}
+		catch {
+			return false;
+		}
+		return true;
+	};
+	const generateManifest = async methods => {
+		const manifestPath = path.join(viteConfig.root, config.manifestFile);
+		try {
+			await fs.stat(manifestPath);
+		}
+		catch {
+			methods.warn(`Couldn't find your web app manifest file at ${config.manifestFile}. Check its filename or change this path in config.manifestFile.`);
+			return;
+		}
+
+		const fileData = await fs.readFile(manifestPath, { encoding: "utf-8" });
+		let parsed;
+		try {
+			parsed = JSON.parse(fileData);
+		}
+		catch {
+			throw new VersionedWorkerError(`Couldn't parse your web app manifest file at ${config.manifestFile}. Contents:\n${fileData}`);
+		}
+
+		
+		if (handlerFileExists) {
+			const handlerModule = await import(
+				pathToFileURL(path.join(viteConfig.root, config.handlerFile))
+			); // TODO: this will need bundling (although without minification) once the constants can be imported with virtual modules
+
+			if (handlerModule.generateManifest) {
+				let output = await handlerModule.generateManifest(parsed);
+				if (output != null) {
+					if (typeof output == "object") output = JSON.stringify(output);
+
+					return output;
+				}
+			}
+		}
+
+		const addEndingSlash = href => href.endsWith("/")? href : href + "/";
+		parsed.scope = addEndingSlash(baseURL);
+		if (parsed.start_url == null) parsed.start_url = baseURL;
+		else {
+			let href = parsed.start_url;
+			if (href.endsWith("/")) href = href.slice(0, -1);
+
+			parsed.start_url = addEndingSlash(baseURL + href);
+		}
+		return JSON.stringify(parsed);
 	};
 	const cleanUp = async _ => {
 		await fs.rm(path.join(pluginDir, "tmp"), {
@@ -238,8 +289,8 @@ export function versionedWorker(config) {
 			viteConfig = _viteConfig;
 			svelteConfig = await loadSvelteConfig(viteConfig.root);
 			isSSR = viteConfig.build.ssr;
-			baseURL = viteConfig.base;
-			if (baseURL == "./") baseURL = "/";
+			baseURL = svelteConfig.kit.paths.base;
+			if (baseURL == "") baseURL = "/";
 
 			storagePrefix = config.storagePrefix;
 			if (storagePrefix == null) {
@@ -266,10 +317,18 @@ export function versionedWorker(config) {
 				throw new VersionedWorkerError(`Your need to use the static SvelteKit adapter to use this plugin. You're using ${svelteConfig.kit.adapter.name}.`);
 			}
 
-			backgroundTask = init(config, {
+			const methods = {
 				warn: this.warn,
 				info: this.info
+			};
+
+			handlerFileExists = await checkIfHandlerFileExists();
+			this.emitFile({
+				type: "asset",
+				fileName: config.manifestOutName,
+				source: await generateManifest(methods)
 			});
+			backgroundTask = init(config, methods);
 		},
 
 		generateBundle: {
@@ -309,7 +368,7 @@ export function versionedWorker(config) {
 				const codeForConstants = `const [ROUTES, PRECACHE, LAZY_CACHE, STORAGE_PREFIX, VERSION, VERSION_FOLDER, VERSION_FILE_BATCH_SIZE, MAX_VERSION_FILES, BASE_URL] = ${JSON.stringify([routes, precache, lazyCache, storagePrefix, version, VERSION_FOLDER, VERSION_FILE_BATCH_SIZE, MAX_VERSION_FILES, baseURL])};`;
 
 				try {
-					await fs.stat(path.join(viteConfig.root, config.buildDir)); // I think node sometimes doesn't realise the build folder exists without this
+					await fs.stat(path.join(viteConfig.root, config.buildDir));
 				}
 				catch {
 					throw new VersionedWorkerError(`Couldn't find your build folder ${JSON.stringify(config.buildDir)}, make sure the "buildDir" property of this plugin's config matches the output directory in your SvelteKit static adapter config.`);

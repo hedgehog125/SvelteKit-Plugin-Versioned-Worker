@@ -4,13 +4,11 @@ import { versionedWorker, fetchLast, readLast } from "sveltekit-plugin-versioned
 const config = {
 	plugins: [
 		sveltekit(),
-		///*
 		versionedWorker({
-			lastInfo: process.env.DISABLE_BASE_URL?
+			lastInfo: process.env.DISABLE_BASE_URL === "true"?
 				readLast("build/.versionedWorker.json")
 				: fetchLast("https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker/.versionedWorker.json")
 		})
-		//*/
 	]
 };
 

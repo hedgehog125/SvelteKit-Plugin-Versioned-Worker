@@ -2,8 +2,9 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"debugDuringBuild": "cross-env DISABLE_BASE_URL=true npm --node-options=--inspect-brk run build",
 		"testBuild": "cross-env DISABLE_BASE_URL=true vite build",
+		"debugDuringBuild": "cross-env DISABLE_BASE_URL=true npm --node-options=--inspect-brk run build",
+		"debugDuringBuildWithBase": "npm --node-options=--inspect-brk run build",
 		"preview": "http-server build"
 	},
 	"devDependencies": {

@@ -1,7 +1,7 @@
 import { base } from "$app/paths";
 
 export function linkPage(href) {
-    if (href[href.length - 1] == "/") href = href.slice(0, href.length - 1);
+	if (href.endsWith("/")) href = href.slice(0, -1);
 
     return base + "/" + href;
 };
