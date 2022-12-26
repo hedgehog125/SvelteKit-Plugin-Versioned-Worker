@@ -1,8 +1,9 @@
 /*
 TODO
 
-Store the changed files per version in the files so less redownloading. Just make the new format use the old version number
-Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json
+Add the base URL to more things in the manifest, like icons
+
+Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json. Should the build logic be updated to handle the different indexes or should it be populated with nulls on load?
 
 Export the constants and import them in rather than inlining, that way they can be used by the hooks file. Use virtual modules for this and the importing of the hooks
 
@@ -110,6 +111,34 @@ export function versionedWorker(config) {
 
 				lastBuild = output;
 				lastBuild.hashes = new Map(Object.entries(lastBuild.hashes));
+
+				if (! [1, 2].includes(lastBuild.formatVersion)) {
+					throw new VersionedWorkerError(`Unsupported version ${lastBuild.formatVersion} in the info file from the last build.`);
+				}
+
+				if (lastBuild.formatVersion == 1) { // Upgrade
+					// Upgrade all the version files to version 2, by approximating the missing information
+					for (let versionFileID = 0; versionFileID < lastBuild.versions.length; versionFileID++) {
+						const versionFile = lastBuild.versions[versionFileID];
+
+						if (versionFile.formatVersion == 2) continue;
+						if (versionFile.formatVersion != 1) {
+							throw new VersionedWorkerError(`Unsupported version ${versionFile.formatVersion} for the version file with the ID ${versionFileID}, in the info file from the last build. I'm not sure how this could have happened, so you might need to just delete the info file and reset everything.`);
+						}
+
+						// For the previous versions, set the updated files in that version to the files updated in this batch so far
+						const isLastFile = versionFileID == lastBuild.versions.length - 1;
+						let repeatCount = isLastFile?
+							(lastBuild.version % VERSION_FILE_BATCH_SIZE) + 1
+							: VERSION_FILE_BATCH_SIZE
+						; // Even if isLastFile is true, this can still be equal to VERSION_FILE_BATCH_SIZE because of the +1
+
+						versionFile.updated = new Array(repeatCount).fill(versionFile.updated);
+						versionFile.formatVersion = 2;
+					}
+
+					lastBuild.formatVersion = 2;
+				}
 			})(),
 			(async _ => {
 				if (handlerFileExists) {
@@ -168,14 +197,14 @@ export function versionedWorker(config) {
 			}
 		}
 
-		const addEndingSlash = href => href.endsWith("/")? href : href + "/";
-		parsed.scope = addEndingSlash(baseURL);
+		parsed.scope = baseURL;
 		if (parsed.start_url == null) parsed.start_url = baseURL;
 		else {
 			let href = parsed.start_url;
 			if (href.endsWith("/")) href = href.slice(0, -1);
 
 			parsed.start_url = addEndingSlash(baseURL + href);
+			if (! parsed.start_url.endsWith("/")) parsed.start_url += "/";
 		}
 		return JSON.stringify(parsed);
 	};
@@ -214,10 +243,11 @@ export function versionedWorker(config) {
 		buildInfo.version++;
 
 		const isNewBatch = buildInfo.version % VERSION_FILE_BATCH_SIZE == 0;
-		let updated = isNewBatch?
-			new Set()
-			: new Set(buildInfo.versions[buildInfo.versions.length - 1].updated)
+		const lastVersion = isNewBatch?
+			null
+			: buildInfo.versions[buildInfo.versions.length - 1]
 		;
+		let updated = new Set();
 		for (const [fileName, hash] of buildInfo.hashes) {
 			if (! hashes.has(fileName)) continue; // It's a new file
 
@@ -230,8 +260,11 @@ export function versionedWorker(config) {
 			buildInfo.versions.length
 			: buildInfo.versions.length - 1
 		] = {
-			formatVersion: 1,
-			updated: Array.from(updated)
+			formatVersion: 2,
+			updated: [ // The second isn't spread because this is a nested array
+				...(lastVersion == null? [] : lastVersion.updated),
+				Array.from(updated)
+			]
 		};
 		buildInfo.hashes = hashes;
 	};
@@ -291,6 +324,7 @@ export function versionedWorker(config) {
 			isSSR = viteConfig.build.ssr;
 			baseURL = svelteConfig.kit.paths.base;
 			if (baseURL == "") baseURL = "/";
+			else if (! baseURL.endsWith("/")) baseURL += "/";
 
 			storagePrefix = config.storagePrefix;
 			if (storagePrefix == null) {
@@ -299,7 +333,7 @@ export function versionedWorker(config) {
 					storagePrefix = "VersionedWorkerCache";
 				}
 				else {
-					if (storagePrefix.endsWith("/")) storagePrefix = storagePrefix.slice(0, -1);
+					storagePrefix = storagePrefix.slice(0, -1); // Remove the ending slash
 				}
 
 			}
@@ -307,7 +341,8 @@ export function versionedWorker(config) {
 
 			if (config.exclude == null) config.exclude = fileList([
 				svelteConfig.kit.appDir + "/version.json",
-				viteConfig.build.manifest
+				viteConfig.build.manifest,
+				"robots.txt"
 			]);			
 		},
 		async buildStart() {
@@ -401,7 +436,11 @@ export function versionedWorker(config) {
 						for (let fileID in buildInfo.versions) {
 							const versionBatch = buildInfo.versions[fileID];
 
-							const contents = `${versionBatch.formatVersion}\n${versionBatch.updated.join("\n")}`;
+							const mainContents = versionBatch.updated
+								.map(updatedInVersion => updatedInVersion.join("\n"))
+								.join("\n\n")
+							;
+							const contents = `${versionBatch.formatVersion}\n${mainContents}`;
 							writes.push(
 								fs.writeFile(path.join(versionPath, fileID + ".txt"), contents)
 							);

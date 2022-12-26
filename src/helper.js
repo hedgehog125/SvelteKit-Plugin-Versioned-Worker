@@ -69,7 +69,7 @@ const recursiveListSub = async (folder, found, relativeFolderPath) => {
 
 export function newInitialInfo() {
 	return {
-		formatVersion: 1,
+		formatVersion: 2,
 		version: -1,
 		versions: [],
 		hashes: {}

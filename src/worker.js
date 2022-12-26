@@ -28,11 +28,23 @@ const parseUpdatedList = contents => {
 
 	const splitPoint = contents.indexOf("\n");
 	const version = contents.slice(0, splitPoint);
-	if (version != "1") throw new Error(`Unknown format version ${JSON.stringify(version)} in the most recent version file (not version.txt, the ones containing the changed files).`);
+	const formatSupported = version == 2;
 	
+	let updated = null;
+	if (formatSupported) {
+		updated = contents.slice(splitPoint + 1)
+			.split("\n\n")
+			.map(updatedList => {
+				let parsed = updatedList.split("\n");
+				if (parsed[0] == "") return [];
+				else return parsed;
+			})
+		;
+	}
+
 	return {
-		formatVersion: 1,
-		updated: contents.slice(splitPoint + 1).split("\n")
+		formatVersion: formatSupported? 2 : -1,
+		updated: updated
 	};
 };
 const getInstalled = async _ => {
@@ -57,20 +69,37 @@ const getUpdated = async installedVersions => {
 	
 	// Fetch all the version files between the versions
 	let versionFiles = [];
-	for (let version = newestInstalled; version <= VERSION; version += VERSION_FILE_BATCH_SIZE) {
-		versionFiles.push(fetch(`${VERSION_FOLDER}/${Math.floor(version / VERSION_FILE_BATCH_SIZE)}.txt`));
-
-		if (versionFiles.length > MAX_VERSION_FILES) return [null, true]; // Clean install
+	const rangeToDownload = [
+		Math.floor((newestInstalled + 1) / VERSION_FILE_BATCH_SIZE), // +1 because we don't need this version file if the installed version is the last one in it
+		Math.floor(VERSION / VERSION_FILE_BATCH_SIZE)
+	];
+	const numberToDownload = (rangeToDownload[1] - rangeToDownload[0]) + 1;
+	if (numberToDownload > MAX_VERSION_FILES) return [null, true]; // Clean install
+	
+	for (let versionFileID = rangeToDownload[0]; versionFileID <= rangeToDownload[1]; versionFileID++) {
+		versionFiles.push(fetch(`${VERSION_FOLDER}/${versionFileID}.txt`));
 	}
 
 	versionFiles = await Promise.all(versionFiles);
 	versionFiles = await Promise.all(versionFiles.map(res => res.text()));
 	versionFiles = versionFiles.map(parseUpdatedList);
+	if (versionFiles.find(versionFile => versionFile.formatVersion == -1)) return [null, true]; // Unknown format version, so do a clean install
 
+	const fileIdOfInstalled = Math.floor(newestInstalled / VERSION_FILE_BATCH_SIZE); // Note no +1
 	let updated = new Set();
-	for (const versionFile of versionFiles) {
-		for (const href of versionFile.updated) {
-			updated.add(href);
+	for (let i = 0; i < versionFiles.length; i++) {
+		const versionFileID = rangeToDownload[0] + i;
+		const versionFile = versionFiles[i];
+
+		let startIndex = 0;
+		if (versionFileID == fileIdOfInstalled) { // This is used instead of checking if this is the first iteration as if the installed version is the last of its file, this logic shouldn't run
+			startIndex = (newestInstalled + 1) % VERSION_FILE_BATCH_SIZE; // Ignore the files changed in the previous versions
+		}
+
+		for (let versionInFile = startIndex; versionInFile < versionFile.updated.length; versionInFile++) { // versionInFile is a version that's been modulus divided by the max per file
+			for (const href of versionFile.updated[versionInFile]) {
+				updated.add(href);
+			}
 		}
 	}
 	return [updated, false];
@@ -126,6 +155,7 @@ addEventListener("activate", e => {
 	e.waitUntil(
 		(async _ => {
 			await clients.claim();
+
 			// Clean up
 			const cacheNames = await caches.keys();
 			for (const cacheName of cacheNames) {
