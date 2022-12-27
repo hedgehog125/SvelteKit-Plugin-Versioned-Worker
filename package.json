@@ -1,6 +1,6 @@
 {
 	"name": "sveltekit-plugin-versioned-worker",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "A service worker plugin made specifically for SvelteKit apps using the static adapter",
 	"main": "index.js",
 	"exports": {
