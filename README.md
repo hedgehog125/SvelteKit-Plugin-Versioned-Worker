@@ -122,7 +122,7 @@ You should now just be able to build and deploy, but there're a few other option
     
     By default, the scope and start URL are made optional. The scope is always set to the base URL in svelteConfig.kit.paths.base, and all the paths have the base added to the start unless they start with a slash or are absolute URLs (including the start URL).
     
-    But you can replace this behaviour by providing a function, which is called with the parsed manifest file contents as its only argument. What's returned is what gets written to the output manifest file, this will be stringified if it's an object.
+    But you can replace this behaviour by providing a function, which is called with the parsed manifest file contents as its 1st argument, and the base URL as its second. What's returned by the function is what gets written to the output manifest file, this will be stringified if it's an object.
     
   * **`buildDir`**: string (default: **"build"**)
 

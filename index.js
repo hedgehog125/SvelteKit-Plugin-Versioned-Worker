@@ -1,8 +1,6 @@
 /*
 TODO
 
-Move generate manifest to a config argument
-
 Test importing node modules in handler file, might need the plugin
 
 Delay warnings until the end
@@ -81,6 +79,7 @@ export function versionedWorker(config) {
 	if (config.handlerFile == null) config.handlerFile = "src/hooks.worker.js";
 	if (config.manifestFile == null) config.manifestFile = "src/manifest.webmanifest";
 	if (config.manifestOutName == null) config.manifestOutName = "manifest.webmanifest";
+	if (config.generateManifest == null) config.generateManifest = processManifest;
 
 	let viteConfig;
 	let svelteConfig;
@@ -189,60 +188,10 @@ export function versionedWorker(config) {
 			throw new VersionedWorkerError(`Couldn't parse your web app manifest file at ${config.manifestFile}. Contents:\n${fileData}`);
 		}
 
-		
-		if (handlerFileExists) {
-			const handlerModule = await import(
-				pathToFileURL(path.join(viteConfig.root, config.handlerFile))
-			); // TODO: this will need bundling (although without minification) once the constants can be imported with virtual modules
+		let output = await config.generateManifest(parsed, baseURL);
+		if (typeof output == "object") output = JSON.stringify(output);
 
-			if (handlerModule.generateManifest) {
-				let output = await handlerModule.generateManifest(parsed);
-				if (output != null) {
-					if (typeof output == "object") output = JSON.stringify(output);
-
-					return output;
-				}
-			}
-		}
-
-		const addBase = href => {
-			if (href.startsWith("/") || href.includes("://")) return href;
-			
-			return baseURL + href;
-		};
-		parsed.scope = baseURL;
-		if (parsed.start_url == null) parsed.start_url = baseURL;
-		else {
-			parsed.start_url = addBase(parsed.start_url);
-			if (! parsed.start_url.endsWith("/")) parsed.start_url += "/";
-		}
-
-		if (parsed.icons) {
-			for (const icon of parsed.icons) {
-				icon.src = addBase(icon.src);
-			}
-		}
-		if (parsed.protocol_handlers) {
-			for (const handler of parsed.protocol_handlers) {
-				handler.url = addBase(handler.url);
-			}
-		}
-		if (parsed.screenshots) {
-			for (const screenshot of parsed.screenshots) {
-				screenshot.src = addBase(screenshot.src);
-			}
-		}
-		if (parsed.share_target) {
-			for (const shareTarget of parsed.share_target) {
-				shareTarget.action = addBase(shareTarget.action);
-			}
-		}
-		if (parsed.shortcuts) {
-			for (const shortcut of parsed.shortcuts) {
-				shortcut.url = addBase(shortcut.url);
-			}
-		}
-		return JSON.stringify(parsed);
+		return output;
 	};
 	const cleanUp = async _ => {
 		await fs.rm(path.join(pluginDir, "tmp"), {
@@ -586,4 +535,46 @@ export function readLast(filePath) {
 
 export function fileList(files = []) {
 	return filePath => files.includes(filePath);
+};
+
+export function processManifest(parsed, baseURL) {
+	const addBase = href => {
+		if (href.startsWith("/") || href.includes("://")) return href;
+		
+		return baseURL + href;
+	};
+	parsed.scope = baseURL;
+	if (parsed.start_url == null) parsed.start_url = baseURL;
+	else {
+		parsed.start_url = addBase(parsed.start_url);
+		if (! parsed.start_url.endsWith("/")) parsed.start_url += "/";
+	}
+
+	if (parsed.icons) {
+		for (const icon of parsed.icons) {
+			icon.src = addBase(icon.src);
+		}
+	}
+	if (parsed.protocol_handlers) {
+		for (const handler of parsed.protocol_handlers) {
+			handler.url = addBase(handler.url);
+		}
+	}
+	if (parsed.screenshots) {
+		for (const screenshot of parsed.screenshots) {
+			screenshot.src = addBase(screenshot.src);
+		}
+	}
+	if (parsed.share_target) {
+		for (const shareTarget of parsed.share_target) {
+			shareTarget.action = addBase(shareTarget.action);
+		}
+	}
+	if (parsed.shortcuts) {
+		for (const shortcut of parsed.shortcuts) {
+			shortcut.url = addBase(shortcut.url);
+		}
+	}
+
+	return parsed;
 };
