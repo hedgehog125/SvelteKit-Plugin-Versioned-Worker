@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@sveltejs/kit": "^1.0.1",
 		"degit": "^2.8.4",
+		"find-up": "^6.3.0",
 		"mime-types": "^2.1.35",
 		"rollup-plugin-esbuild": "^5.0.0",
 		"svelte": "^3.54.0",

@@ -23,7 +23,6 @@ Updating the worker on refresh still doesn't work in firefox. Find a workaround 
 import path from "path";
 import { normalizePath } from "vite";
 import fs from "fs/promises";
-import { pathToFileURL } from "url";
 
 import degit from "degit";
 import mime from "mime-types";
@@ -32,13 +31,12 @@ installPolyfills();
 
 import { rollup } from "rollup";
 import esbuild from "rollup-plugin-esbuild";
-import { load_config as loadSvelteConfig } from "./node_modules/@sveltejs/kit/src/core/config/index.js"; // Kind of hacky, but I guess slightly less than importing and adding defaults in myself
 
 
 import {
 	hash, recursiveList,
 	stringifyPlus, newInitialInfo,
-	VersionedWorkerError
+	VersionedWorkerError, importSvelteConfigModule
 } from "./src/helper.js";
 
 import { fileURLToPath } from "url";
@@ -83,6 +81,7 @@ export function versionedWorker(config) {
 
 	let viteConfig;
 	let svelteConfig;
+	let loadSvelteConfig;
 
 	let isSSR;
 	let baseURL;
@@ -312,6 +311,8 @@ export function versionedWorker(config) {
 		apply: "build",
 		async configResolved(_viteConfig) {
 			if (isSSR) return;
+
+			loadSvelteConfig = await importSvelteConfigModule();
 
 			viteConfig = _viteConfig;
 			svelteConfig = await loadSvelteConfig(viteConfig.root);

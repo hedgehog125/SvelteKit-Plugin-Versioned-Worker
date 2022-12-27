@@ -1,4 +1,6 @@
 import path from "path";
+import { findUp } from "find-up";
+import { pathToFileURL } from "url";
 import fs from "fs/promises";
 
 import crypto from "crypto";
@@ -74,4 +76,25 @@ export function newInitialInfo() {
 		versions: [],
 		hashes: {}
 	};
+};
+
+export async function importSvelteConfigModule() {
+	// Kind of hacky, but I guess slightly less than importing and adding defaults in myself
+
+	const notFoundError = _ => { 
+		throw new VersionedWorkerError("Couldn't find SvelteKit's load_config function. You might be using an incompatible version.");
+	};
+
+	let modulePath;
+	try {
+		modulePath = await findUp("node_modules/@sveltejs/kit/src/core/config/index.js");
+	}
+	catch {
+		notFoundError();
+	}
+	const module = await import(pathToFileURL(modulePath));
+	const loadConfig = module.load_config;
+	if (loadConfig == null) notFoundError();
+
+	return loadConfig;
 };
