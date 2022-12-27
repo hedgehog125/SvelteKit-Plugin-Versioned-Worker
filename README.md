@@ -1,6 +1,10 @@
 # SvelteKit-Plugin-Versioned-Worker
 A minimal plugin for SvelteKit PWAs using the static adapter
 
+[Simple demo](https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker)
+
+---
+
 Something I noticed while researching Workbox was that it doesn't seem to have much of an update mechanism. Instead it seems to rely on periodically redownloading assets when there's an internet connection, depending on the strategies you've chosen and the HTTP cache headers (which you can't always control). I thought this seemed like an unnecessary thing to have to worry about and also a bit wasteful, so I made my own service worker plugin that uses the same strategy that I used for Bagel.js: where the client fetches metadata files which tell it which files to download. I also wanted to make it specifically for SvelteKit, both to simplify use with it and to simplify its development.
 
 # Features
