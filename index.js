@@ -1,6 +1,16 @@
 /*
 TODO
 
+Move generate manifest to a config argument
+
+Test importing node modules in handler file, might need the plugin
+
+Delay warnings until the end
+Remove hashes from filenames or looking them up in the bundle when calling lazyCache or exclude
+Add a background task function to the config. The promise could be provided to all the other functions
+Provide the default exclusions to the exclude function
+Maybe call with the name of the function? e.g lazyCache, exclude etc.
+
 Implement MAX_VERSION_FILES, maybe keep one more than that on the server though. Also do the same for .versionedWorker.json. Should the build logic be updated to handle the different indexes or should it be populated with nulls on load?
 
 Export the constants and import them in rather than inlining, that way they can be used by the hooks file. Use virtual modules for this and the importing of the hooks
@@ -40,7 +50,7 @@ const DOWNLOAD_TMP = "tmp/downloadBuildTmp";
 const WORKER_FILE = "sw.js";
 const VERSION_FOLDER = "sw";
 const VERSION_FILE = "version.txt";
-const INFO_FILE = ".versionedWorker.json";
+const INFO_FILE = "versionedWorker.json";
 
 const VERSION_FILE_BATCH_SIZE = 10;
 const MAX_VERSION_FILES = 10;
@@ -167,7 +177,7 @@ export function versionedWorker(config) {
 		}
 		catch {
 			methods.warn(`Couldn't find your web app manifest file at ${config.manifestFile}. Check its filename or change this path in config.manifestFile.`);
-			return;
+			return null;
 		}
 
 		const fileData = await fs.readFile(manifestPath, { encoding: "utf-8" });
@@ -317,11 +327,20 @@ export function versionedWorker(config) {
 			const filePath = normalizePath(fileInfo.path).slice(0); // Remove the unnecessary starting dot
 			if (filePath == WORKER_FILE) continue;
 
+			const args = [
+				filePath,
+				mime.lookup(filePath),
+				path.join(viteConfig.root, config.buildDir),
+				{
+					viteConfig,
+					svelteConfig
+				}
+			];
 			callbackOutputs.push([
 				filePath,
 				Promise.all([
-					config.lazyCache(filePath, mime.lookup(filePath)),
-					config.exclude(filePath, mime.lookup(filePath))
+					config.exclude(...args),
+					config.lazyCache(...args)
 				])
 			]);
 		}
@@ -329,7 +348,7 @@ export function versionedWorker(config) {
 		let precache = [];
 		let lazyCache = [];
 		for (const [filePath, output] of callbackOutputs) {
-			const [lazy, exclude] = await output;
+			const [exclude, lazy] = await output;
 			if (exclude) continue;
 			
 			if (lazy) lazyCache.push(filePath);
@@ -384,11 +403,14 @@ export function versionedWorker(config) {
 			};
 
 			handlerFileExists = await checkIfHandlerFileExists();
-			this.emitFile({
-				type: "asset",
-				fileName: config.manifestOutName,
-				source: await generateManifest(methods)
-			});
+			const manifestContents = await generateManifest(methods);
+			if (manifestContents != null) {
+				this.emitFile({
+					type: "asset",
+					fileName: config.manifestOutName,
+					source: manifestContents
+				});
+			}
 			backgroundTask = init(config, methods);
 		},
 

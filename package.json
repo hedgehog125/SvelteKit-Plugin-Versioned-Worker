@@ -5,12 +5,16 @@
 	"main": "index.js",
 	"exports": {
 		".": "./index.js",
-		"./register-worker": "./exports/RegisterWorker.svelte"
+		"./components": "./exports/Components.js",
+		"./components/register-worker": "./exports/RegisterWorker.svelte"
 	},
 	"keywords": [
 		"sveltekit-plugin",
 		"pwa",
-		"service-worker"
+		"service-worker",
+		"vite-plugin",
+		"sveltekit",
+		"svelte"
 	],
 	"dependencies": {
 		"@sveltejs/kit": "^1.0.1",

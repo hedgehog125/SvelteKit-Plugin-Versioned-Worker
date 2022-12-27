@@ -173,8 +173,8 @@ addEventListener("fetch", e => {
 			const isPage = e.request.mode == "navigate" && e.request.method == "GET";
 			const path = new URL(e.request.url).pathname;
 			if (hooks.handle) {
-				const output = hooks.handle(path.slice(BASE_URL.length), isPage, e, path);
-				if (output != null) return await output;
+				const output = await hooks.handle(path.slice(BASE_URL.length), isPage, e, path);
+				if (output != null) return output;
 			}
 
 			if (isPage && registration.waiting) { // Based on https://redfin.engineering/how-to-fix-the-refresh-button-when-using-service-workers-a8e27af6df68

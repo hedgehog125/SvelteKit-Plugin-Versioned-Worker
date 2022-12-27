@@ -1,6 +1,6 @@
 const BUILD_PATH = "../static/build";
 const DEPLOY_PATH = "../../Deploys/SvelteKit-Plugin-Versioned-Worker/";
-const DOTFILES_TO_COPY = [".versionedWorker.json"];
+const DOTFILES_TO_COPY = [];
 const CONFIGURED = true;
 
 
