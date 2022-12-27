@@ -1,11 +1,12 @@
 const BUILD_PATH = "../static/build";
-const DEPLOY_PATH = "../../Deploys/SvelteKit-Plugin-Versioned-Worker/";
+const DEPLOY_PATH = "../../../Deploys/SvelteKit-Plugin-Versioned-Worker/";
 const DOTFILES_TO_COPY = [];
 const CONFIGURED = true;
 
 
 import fs from "fs/promises";
 import path from "sandboxed-path";
+path.changeSandboxScope.backOne();
 path.changeSandboxScope.backOne();
 path.changeSandboxScope.backOne();
 import { clearDir, recursiveList } from "./src/helper.js";
