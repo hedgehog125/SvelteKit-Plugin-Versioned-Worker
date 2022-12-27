@@ -1,7 +1,7 @@
 /*
 TODO
 
-Test importing node modules in handler file, might need the plugin
+Output manifest in dev mode to prevent errors
 
 Delay warnings until the end
 Remove hashes from filenames or looking them up in the bundle when calling lazyCache or exclude
@@ -31,6 +31,7 @@ installPolyfills();
 
 import { rollup } from "rollup";
 import esbuild from "rollup-plugin-esbuild";
+import { nodeResolve } from "@rollup/plugin-node-resolve";
 
 
 import {
@@ -411,7 +412,12 @@ export function versionedWorker(config) {
 
 				const workerBundle = await rollup({
 					input: path.join(pluginDir, "tmp/entry.js"),
-					plugins: [esbuild({ minify: true })],
+					plugins: [
+						nodeResolve({
+							browser: true
+						}),
+						esbuild({ minify: true })
+					],
 
 					onwarn(warning, warn) {
 						if (warning.code == "MISSING_EXPORT" && warning.exporter == path.join(pluginDir, "tmp/hooks.js")) return; // There's a null check so missing exports are fine
