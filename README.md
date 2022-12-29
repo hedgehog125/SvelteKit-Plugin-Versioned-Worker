@@ -179,5 +179,7 @@ You can hook into and override the default behaviour of the worker at runtime. Y
     };
     ```
 
+# Development Mode
+This plugin mainly only works in build mode because that simplifies things a lot. But the manifest is still outputted in dev mode, partly just to prevent the annoying 404 errors. It's generated in the same way as during the build, but note that you'll need to refresh the page to update it. It's generated for each request, regardless of if the contents have changed or not.
 
 **Note**: while this plugin seems to be working for basic situations, I haven't fully tested it yet, so expect some bugs. Please submit an issue or pull request if you find any.
