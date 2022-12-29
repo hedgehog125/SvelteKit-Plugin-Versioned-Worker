@@ -8,6 +8,10 @@
 		"./components": "./exports/Components.js",
 		"./components/register-worker": "./exports/RegisterWorker.svelte"
 	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/hedgehog125/SvelteKit-Plugin-Versioned-Worker.git"
+	},
 	"keywords": [
 		"sveltekit-plugin",
 		"pwa",

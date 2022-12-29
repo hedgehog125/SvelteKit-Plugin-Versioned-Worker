@@ -13,7 +13,6 @@ Implement MAX_VERSION_FILES, maybe keep one more than that on the server though.
 
 Export the constants and import them in rather than inlining, that way they can be used by the hooks file. Use virtual modules for this and the importing of the hooks
 
-Is the version.txt file needed? It's at least not needed in the worker right?
 Network error handling in install
 How are lazy loaded range requests handled? Particularly when updating, are they copied?
 
@@ -85,13 +84,14 @@ export function versionedWorker(config) {
 	let loadSvelteConfig;
 
 	let isSSR;
+	let isDev;
 	let baseURL;
 	let backgroundTask;
 	let bundle;
 	let lastBuild;
 	let workerBase;
 	let storagePrefix;
-	let handlerFileExists;
+	let methods;
 
 
 	const init = async (config, methods) => {
@@ -148,7 +148,15 @@ export function versionedWorker(config) {
 				}
 			})(),
 			(async _ => {
-				if (handlerFileExists) {
+				let exists = true;
+				try {
+					await fs.stat(path.join(viteConfig.root, config.handlerFile));
+				}
+				catch {
+					exists = false;
+				}
+
+				if (exists) {
 					await fs.copyFile(path.join(viteConfig.root, config.handlerFile), path.join(pluginDir, "tmp/hooks.js"));
 				}
 				else {
@@ -159,15 +167,6 @@ export function versionedWorker(config) {
 				workerBase = await fs.readFile(path.join(pluginDir, "src/worker.js"), { encoding: "utf-8" });
 			})()
 		]);
-	};
-	const checkIfHandlerFileExists = async _ => {
-		try {
-			await fs.stat(path.join(viteConfig.root, config.handlerFile));
-		}
-		catch {
-			return false;
-		}
-		return true;
 	};
 	const generateManifest = async methods => {
 		const manifestPath = path.join(viteConfig.root, config.manifestFile);
@@ -309,18 +308,20 @@ export function versionedWorker(config) {
 
 	return {
 		name: "versioned-worker",
-		apply: "build",
 		async configResolved(_viteConfig) {
+			viteConfig = _viteConfig;
+			isSSR = viteConfig.build.ssr;
+			isDev = ! viteConfig.isProduction;
 			if (isSSR) return;
 
 			loadSvelteConfig = await importSvelteConfigModule();
 
-			viteConfig = _viteConfig;
 			svelteConfig = await loadSvelteConfig(viteConfig.root);
-			isSSR = viteConfig.build.ssr;
 			baseURL = svelteConfig.kit.paths.base;
 			if (baseURL == "") baseURL = "/";
 			else if (! baseURL.endsWith("/")) baseURL += "/";
+
+			if (isDev) return; // This info isn't needed to generate the manifest
 
 			storagePrefix = config.storagePrefix;
 			if (storagePrefix == null) {
@@ -342,18 +343,19 @@ export function versionedWorker(config) {
 			]);			
 		},
 		async buildStart() {
+			methods = {
+				warn: this.warn,
+				info: this.info
+			};
+
 			if (isSSR) return;
 			if (svelteConfig.kit.paths.assets) throw new VersionedWorkerError("svelteConfig.kit.paths.assets can't be used with this plugin.");
 			if (svelteConfig.kit.adapter.name != "@sveltejs/adapter-static") {
 				throw new VersionedWorkerError(`Your need to use the static SvelteKit adapter to use this plugin. You're using ${svelteConfig.kit.adapter.name}.`);
 			}
 
-			const methods = {
-				warn: this.warn,
-				info: this.info
-			};
+			if (isDev) return;
 
-			handlerFileExists = await checkIfHandlerFileExists();
 			const manifestContents = await generateManifest(methods);
 			if (manifestContents != null) {
 				this.emitFile({
@@ -362,13 +364,25 @@ export function versionedWorker(config) {
 					source: manifestContents
 				});
 			}
+
 			backgroundTask = init(config, methods);
+		},
+		configureServer(server) {
+			server.middlewares.use(async (req, res, next) => {
+				if (req.url != "/" + config.manifestOutName) return next();
+
+				const contents = await generateManifest(methods);
+				if (contents == null) return next();
+
+				res.setHeader("Content-Type", "application/manifest+json");
+				res.end(contents, "utf-8");
+			});
 		},
 
 		generateBundle: {
 			sequential: true,
 			handler(_, _bundle) {
-				if (isSSR) return;
+				if (isSSR || isDev) return;
 	
 				bundle = _bundle;
 			}
@@ -378,7 +392,7 @@ export function versionedWorker(config) {
 			enforce: "post",
 			sequential: true,
 			async handler() {
-				if (isSSR) return; // I think the build doesn't actually get written in this hook, instead it gets written when ssr is false, but that happens later
+				if (isSSR || isDev) return;
 				if (bundle == null) {
 					this.warn("Not building because your app seems to have run into a build error.");
 					return;
