@@ -33,7 +33,7 @@ export default {
 };
 ```
 
-But before you can use the plugin, you need to tell it where its info file will go so it can check what's changed. Since this file doesn't have anything sensitive in it (unless you **really** want to hide the source structure), it's easiest just to download it over HTTP(S) from where you'll be hosting this website. For example:
+But before you can use the plugin, you need to tell the plugin where it can find its info file. This file is called "versionedWorker.json" and it's generated for every build. Since it doesn't exist yet, an initial one will be generated. It mostly just compiles some information about the previous build, like some build file hashes, into one file, so it's safe to have it publically accessible. Because of this, it's easiest just to download it over HTTP(S) from where you'll be hosting this website. For example:
 ```js
 // ...
 import { versionedWorker, fetchLast } from "sveltekit-plugin-versioned-worker";
