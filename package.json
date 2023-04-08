@@ -22,7 +22,7 @@
 	],
 	"dependencies": {
 		"@rollup/plugin-node-resolve": "^15.0.1",
-		"@sveltejs/kit": "^1.0.1",
+		"@sveltejs/kit": "^1.15.2",
 		"degit": "^2.8.4",
 		"find-up": "^6.3.0",
 		"mime-types": "^2.1.35",
