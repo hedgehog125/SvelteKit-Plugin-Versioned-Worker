@@ -1,3 +1,5 @@
+**Note**: I'm currently working on [a rewrite](https://github.com/hedgehog125/SvelteKit-Adapter-Versioned-Worker) that will improve on this in practically every way. "versionedWorker.json" files will be compatible but most code related to the plugin will need to be rewritten.
+
 # SvelteKit-Plugin-Versioned-Worker
 A minimal plugin for SvelteKit PWAs using the static adapter
 
