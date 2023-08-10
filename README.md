@@ -3,7 +3,8 @@
 # SvelteKit-Plugin-Versioned-Worker
 A minimal plugin for SvelteKit PWAs using the static adapter
 
-[Simple demo](https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker)
+[Simple demo](https://hedgehog125.github.io/Bagel-V2) | [Source code](https://github.com/hedgehog125/Bagel-V2) <br>
+[Test website](https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker) | [Source code](https://github.com/hedgehog125/SvelteKit-Plugin-Versioned-Worker/tree/main/test/static)
 
 ---
 
