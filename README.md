@@ -1,6 +1,6 @@
 # This Package has Been Deprecated
 
-This has been replaced by [SvelteKit-*Adapter*-Versioned-Worker](https://github.com/hedgehog125/SvelteKit-Adapter-Versioned-Worker) which improves on this in practically every way. `versionedWorker.json` files are compatible but most code related to the plugin will need to be rewritten.
+This has been replaced by [SvelteKit-*Adapter*-Versioned-Worker](https://www.npmjs.com/package/sveltekit-adapter-versioned-worker) which improves on this in practically every way. `versionedWorker.json` files are compatible but most code related to the plugin will need to be rewritten.
 
 ---
 
