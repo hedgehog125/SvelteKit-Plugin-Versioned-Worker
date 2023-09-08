@@ -1,7 +1,23 @@
-**Note**: I'm currently working on [a rewrite](https://github.com/hedgehog125/SvelteKit-Adapter-Versioned-Worker) that will improve on this in practically every way. "versionedWorker.json" files will be compatible but most code related to the plugin will need to be rewritten.
+# This Package has Been Deprecated
+
+This has been replaced by [SvelteKit-*Adapter*-Versioned-Worker](https://github.com/hedgehog125/SvelteKit-Adapter-Versioned-Worker) which improves on this in practically every way. `versionedWorker.json` files are compatible but most code related to the plugin will need to be rewritten.
+
+---
+
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+<br>
+
 
 # SvelteKit-Plugin-Versioned-Worker
 A minimal plugin for SvelteKit PWAs using the static adapter
+
+**Note**: The first now uses SvelteKit-*Adapter*-Versioned-Worker.
 
 [Simple demo](https://hedgehog125.github.io/Bagel-V2) | [Source code](https://github.com/hedgehog125/Bagel-V2) <br>
 [Test website](https://hedgehog125.github.io/SvelteKit-Plugin-Versioned-Worker) | [Source code](https://github.com/hedgehog125/SvelteKit-Plugin-Versioned-Worker/tree/main/test/static)
